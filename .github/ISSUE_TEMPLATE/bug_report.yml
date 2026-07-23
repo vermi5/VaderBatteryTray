@@ -1,0 +1,57 @@
+name: Bug report
+description: Report a reproducible problem
+title: "[Bug] "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: Please remove controller serial numbers and unredacted device paths.
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      placeholder: "1.1.8"
+    validations:
+      required: true
+  - type: dropdown
+    id: connection
+    attributes:
+      label: Connection
+      options:
+        - Wireless
+        - USB
+        - Dock 2
+        - Other or unknown
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: Include the expected result and the actual result.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Start...
+        2. Open...
+        3. Observe...
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Redacted diagnostics
+      description: Optional. Verify that identifiers and device paths are redacted.
+      render: text
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Privacy check
+      options:
+        - label: I removed serial numbers, personal paths, and other private information.
+          required: true

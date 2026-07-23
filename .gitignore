@@ -1,0 +1,15 @@
+# Build outputs
+VaderBatteryTray/VaderBatteryTray.exe
+VaderBatteryTray/VaderLedProtocolSelfTest.exe
+
+# Visual Studio and local tooling
+.vs/
+**/bin/
+**/obj/
+*.user
+*.suo
+
+# Local diagnostics and packages
+*.log
+artifacts/
+release/
