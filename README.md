@@ -15,6 +15,13 @@ Vader 5 Pro without trusting the often incorrect generic XInput battery value.
 
 No installer, administrator access, custom driver, or account is required.
 
+### Optional launcher script
+
+`VaderBatteryTray.cmd` is a convenience launcher for a source checkout. It
+starts `VaderBatteryTray.exe` when that file is already present; otherwise it
+runs `build.cmd` first and starts the resulting executable. For a normal
+release download, simply run `VaderBatteryTray.exe` directly.
+
 ## What it does
 
 - Shows controller battery and charging state in the Windows notification area.
