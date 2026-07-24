@@ -15,8 +15,8 @@ using System.Windows.Forms;
 [assembly: System.Reflection.AssemblyCompany("Open source utility")]
 [assembly: System.Reflection.AssemblyProduct("Vader Battery Tray")]
 [assembly: System.Reflection.AssemblyCopyright("2026")]
-[assembly: System.Reflection.AssemblyVersion("1.1.8.0")]
-[assembly: System.Reflection.AssemblyFileVersion("1.1.8.0")]
+[assembly: System.Reflection.AssemblyVersion("1.1.9.0")]
+[assembly: System.Reflection.AssemblyFileVersion("1.1.9.0")]
 
 namespace VaderBatteryTray
 {
@@ -355,7 +355,7 @@ namespace VaderBatteryTray
             try
             {
                 StringBuilder text = new StringBuilder();
-                text.AppendLine("Vader Battery Tray 1.1.8 diagnostics");
+                text.AppendLine("Vader Battery Tray 1.1.9 diagnostics");
                 text.AppendLine("Generated: " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
                 text.AppendLine("OS: " + Environment.OSVersion);
                 text.AppendLine("64-bit process: " + Environment.Is64BitProcess);

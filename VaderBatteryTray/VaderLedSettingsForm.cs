@@ -8,7 +8,6 @@ namespace VaderBatteryTray
     {
         private readonly TrackBar brightnessTrackBar;
         private readonly Label valueLabel;
-        private readonly Timer previewTimer;
         private readonly Action<byte> previewAction;
 
         public VaderLedSettingsForm(int currentBrightness, Action<byte> previewAction)
@@ -45,25 +44,19 @@ namespace VaderBatteryTray
             brightnessTrackBar.ValueChanged += delegate
             {
                 UpdateValueLabel();
-                previewTimer.Stop();
-                previewTimer.Start();
             };
-
+            brightnessTrackBar.MouseUp += delegate { PreviewBrightness(); };
+            brightnessTrackBar.KeyUp += delegate(object sender, KeyEventArgs e)
+            {
+                if (IsBrightnessAdjustmentKey(e.KeyCode))
+                {
+                    PreviewBrightness();
+                }
+            };
             Label explanationLabel = new Label();
             explanationLabel.AutoSize = true;
             explanationLabel.Location = new Point(16, 86);
-            explanationLabel.Text = "Preview is shown while battery-color sync is enabled.";
-
-            previewTimer = new Timer();
-            previewTimer.Interval = 300;
-            previewTimer.Tick += delegate
-            {
-                previewTimer.Stop();
-                if (this.previewAction != null)
-                {
-                    this.previewAction(BrightnessPercent);
-                }
-            };
+            explanationLabel.Text = "Preview is sent when the slider is released.";
 
             Button saveButton = new Button();
             saveButton.Location = new Point(188, 116);
@@ -86,11 +79,6 @@ namespace VaderBatteryTray
 
             AcceptButton = saveButton;
             CancelButton = cancelButton;
-            FormClosed += delegate
-            {
-                previewTimer.Stop();
-                previewTimer.Dispose();
-            };
             UpdateValueLabel();
         }
 
@@ -102,6 +90,26 @@ namespace VaderBatteryTray
         private void UpdateValueLabel()
         {
             valueLabel.Text = brightnessTrackBar.Value.ToString() + "%";
+        }
+
+        private void PreviewBrightness()
+        {
+            if (previewAction != null)
+            {
+                previewAction(BrightnessPercent);
+            }
+        }
+
+        private static bool IsBrightnessAdjustmentKey(Keys keyCode)
+        {
+            return keyCode == Keys.Left ||
+                keyCode == Keys.Right ||
+                keyCode == Keys.Up ||
+                keyCode == Keys.Down ||
+                keyCode == Keys.PageUp ||
+                keyCode == Keys.PageDown ||
+                keyCode == Keys.Home ||
+                keyCode == Keys.End;
         }
     }
 }
