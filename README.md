@@ -9,7 +9,7 @@ Vader 5 Pro without trusting the often incorrect generic XInput battery value.
 ## Download
 
 1. Open the [latest release](https://github.com/vermi5/VaderBatteryTray/releases/latest).
-2. Download `VaderBatteryTray-1.1.8.zip`.
+2. Download `VaderBatteryTray-1.1.9.zip`.
 3. Extract the ZIP to a permanent folder.
 4. Double-click `VaderBatteryTray.exe`.
 
@@ -32,7 +32,7 @@ Right-click the tray icon and open **Controller lighting**.
 
 - **Sync color with battery** enables or disables direct lighting control.
 - **Brightness** accepts values from 0% to 100% and defaults to 25%.
-- Moving the slider shows a short, debounced live preview.
+- Moving the slider updates the percentage immediately and sends one preview after release.
 - **Reset saved settings** returns to disabled lighting and 25% brightness.
 
 Lighting control is experimental and disabled by default. It does not send

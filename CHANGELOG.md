@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.1.9 - 2026-07-24
+
+- The brightness percentage now updates locally while the slider is dragged.
+- A brightness preview is sent only after the mouse button or adjustment key is released, reducing repeated HID writes during adjustment.
+
 ## 1.1.8 - 2026-07-24
 
 - Added optional battery-color lighting control to the tray menu.
