@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.1.10 - 2026-07-24
+
+- Allow direct battery-color lighting for a controller actively responding to `GET_INFO` while it is docked.
+- Keep the controller read-only when it is merely enumerated briefly while powered off in the Dock.
+
 ## 1.1.9 - 2026-07-24
 
 - The brightness percentage now updates locally while the slider is dragged.

@@ -15,8 +15,8 @@ using System.Windows.Forms;
 [assembly: System.Reflection.AssemblyCompany("Open source utility")]
 [assembly: System.Reflection.AssemblyProduct("Vader Battery Tray")]
 [assembly: System.Reflection.AssemblyCopyright("2026")]
-[assembly: System.Reflection.AssemblyVersion("1.1.9.0")]
-[assembly: System.Reflection.AssemblyFileVersion("1.1.9.0")]
+[assembly: System.Reflection.AssemblyVersion("1.1.10.0")]
+[assembly: System.Reflection.AssemblyFileVersion("1.1.10.0")]
 
 namespace VaderBatteryTray
 {
@@ -190,7 +190,7 @@ namespace VaderBatteryTray
             {
                 DialogResult result = MessageBox.Show(
                     "Direct controller lighting sends experimental HID commands to the controller.\r\n\r\n" +
-                    "It remains disabled while the Dock owns the lighting. Continue?",
+                    "Docked lighting is applied only after a valid live controller reply. Continue?",
                     "Enable controller lighting",
                     MessageBoxButtons.YesNo,
                     MessageBoxIcon.Warning);
@@ -355,14 +355,14 @@ namespace VaderBatteryTray
             try
             {
                 StringBuilder text = new StringBuilder();
-                text.AppendLine("Vader Battery Tray 1.1.9 diagnostics");
+                text.AppendLine("Vader Battery Tray 1.1.10 diagnostics");
                 text.AppendLine("Generated: " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
                 text.AppendLine("OS: " + Environment.OSVersion);
                 text.AppendLine("64-bit process: " + Environment.Is64BitProcess);
                 text.AppendLine("Refresh interval: " + RefreshIntervalMs.ToString() + " ms");
                 text.AppendLine("Controller polling: enabled");
                 text.AppendLine("Direct controller LED control: " + ledController.Status);
-                text.AppendLine("Direct LED policy: suppressed while the snapshot is dock-owned");
+                text.AppendLine("Direct LED policy: Dock snapshots require a valid live controller GET_INFO reply");
                 text.AppendLine("Rainmeter bridge: " + (rainmeterBridge.IsRunning ? RainmeterBridge.StateUrl : "unavailable"));
                 if (!String.IsNullOrEmpty(rainmeterBridge.StartError))
                 {
@@ -516,6 +516,10 @@ namespace VaderBatteryTray
         public byte? RawGetInfoStatusNibble;
         public byte? RawDockFlag;
         public byte? RawDockState;
+        // A valid GET_INFO reply was received from the controller in this refresh.
+        // Enumeration alone is not enough: an off controller briefly exposes the
+        // same HID interfaces while it is docked.
+        public bool HasLiveControllerSession;
         public DateTime UtcObservationTimestamp;
         public static BatterySnapshot Unavailable(string error, bool interfacePresent)
         {
@@ -604,13 +608,13 @@ namespace VaderBatteryTray
             BatterySnapshot monitorSnapshot = dockMonitor.WaitForSnapshot(2500);
             if (monitorSnapshot.HasBatteryBand)
             {
-                return monitorSnapshot;
+                return AttachLiveControllerSession(monitorSnapshot, last);
             }
 
             BatterySnapshot dock = ReadDockBatteryBand();
             if (dock.HasBatteryBand)
             {
-                return dock;
+                return AttachLiveControllerSession(dock, last);
             }
             if (last != null && last.HasBattery)
             {
@@ -629,6 +633,15 @@ namespace VaderBatteryTray
             }
 
             return dock ?? last ?? BatterySnapshot.Unavailable("GET_INFO reply not received", true);
+        }
+
+        private static BatterySnapshot AttachLiveControllerSession(BatterySnapshot dockSnapshot, BatterySnapshot controllerSnapshot)
+        {
+            if (dockSnapshot != null && controllerSnapshot != null && controllerSnapshot.HasLiveControllerSession)
+            {
+                dockSnapshot.HasLiveControllerSession = true;
+            }
+            return dockSnapshot;
         }
 
         private BatterySnapshot ReadBatteryOnce()
@@ -783,6 +796,7 @@ namespace VaderBatteryTray
 
             BatterySnapshot snapshot = new BatterySnapshot();
             snapshot.InterfacePresent = true;
+            snapshot.HasLiveControllerSession = true;
             snapshot.DeviceId = deviceId.ToString();
             snapshot.Firmware = "0x" + firmware.ToString("X4");
             snapshot.ConnectionText = DecodeConnection(connection);
