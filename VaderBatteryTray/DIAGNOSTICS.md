@@ -76,10 +76,12 @@ Dock EF states are represented as qualitative bands:
 | Raw state | Displayed band |
 | --- | --- |
 | `0x01`–`0x02` | Low |
-| `0x03`–`0x04` | Medium |
-| `0x05`–`0x06` | High |
+| `0x03` | Medium |
+| `0x04`–`0x06` | High |
 
-Dock states are deliberately not converted to percentages.
+Dock states are deliberately not converted to percentages. The `0x04` boundary
+is displayed as High so its visual band matches the controller's observed 80%
+GET_INFO level after undocking.
 
 Observed tests showed that Dock state `0x06` could be followed by `0x05` within approximately one second. That transition cannot represent a real loss of 15 percentage points, so values such as 85% and 100% would imply unsupported precision.
 
