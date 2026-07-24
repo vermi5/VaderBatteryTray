@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.1.11 - 2026-07-24
+
+- Corrected the Dock 2 EF visual-band boundary: state `0x04` now displays as High, matching the observed 80% controller band after undocking.
+- Dock EF states remain qualitative; no percentage is inferred or displayed.
+
 ## 1.1.10 - 2026-07-24
 
 - Allow direct battery-color lighting for a controller actively responding to `GET_INFO` while it is docked.
