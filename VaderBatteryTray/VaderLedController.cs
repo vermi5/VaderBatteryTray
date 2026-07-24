@@ -122,7 +122,7 @@ namespace VaderBatteryTray
                 return;
             }
 
-            if (IsDockOwned(snapshot))
+            if (IsDockOwned(snapshot) && !snapshot.HasLiveControllerSession)
             {
                 return;
             }

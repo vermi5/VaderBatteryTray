@@ -36,7 +36,9 @@ Right-click the tray icon and open **Controller lighting**.
 - **Reset saved settings** returns to disabled lighting and 25% brightness.
 
 Lighting control is experimental and disabled by default. It does not send
-lighting commands while the Dock is identified as the lighting owner.
+lighting commands to an off controller merely enumerated by the Dock. For a
+controller actively responding to `GET_INFO` while docked, it can apply the
+battery color.
 
 Advanced users can override the saved settings when starting the process:
 
