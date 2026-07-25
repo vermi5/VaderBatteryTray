@@ -104,7 +104,21 @@ namespace VaderBatteryTray
         private static int ReadInt32(RegistryKey key, string name, int defaultValue)
         {
             object value = key.GetValue(name, defaultValue);
-            return Convert.ToInt32(value);
+            if (value is int)
+            {
+                return (int)value;
+            }
+            if (value is uint)
+            {
+                return unchecked((int)(uint)value);
+            }
+
+            long numeric = Convert.ToInt64(value);
+            if (numeric > Int32.MaxValue && numeric <= UInt32.MaxValue)
+            {
+                return unchecked((int)(uint)numeric);
+            }
+            return checked((int)numeric);
         }
 
         private static DateTime ReadUtc(RegistryKey key, string name)
