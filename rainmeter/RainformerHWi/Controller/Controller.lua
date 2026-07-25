@@ -72,6 +72,7 @@ function Update()
 
     local status = jsonString(json, 'status') or 'unavailable'
     local percent = jsonNumber(json, 'percent')
+    local estimated = jsonBoolean(json, 'estimated') or false
     local bandLevel = jsonNumber(json, 'bandLevel') or 0
     local band = jsonString(json, 'band')
     local charging = jsonBoolean(json, 'charging') or false
@@ -80,6 +81,7 @@ function Update()
     local signature = table.concat({
         status,
         tostring(percent),
+        tostring(estimated),
         tostring(bandLevel),
         tostring(band),
         tostring(charging),
@@ -128,7 +130,7 @@ function Update()
     local batteryText
     local level
     if percent ~= nil then
-        batteryText = tostring(percent) .. '%'
+        batteryText = (estimated and '~' or '') .. tostring(percent) .. '%'
         level = math.max(0, math.min(100, percent))
     else
         batteryText = string.upper(band or 'UNKNOWN')
@@ -149,14 +151,14 @@ function Update()
 
     local barColor
     local batteryColor
-    if level <= 33 then
+    if bandLevel == 1 then
         barColor = '252,1,1,255'
         batteryColor = '252,1,1,255'
-    elseif level <= 66 then
+    elseif bandLevel == 2 then
         barColor = '227,182,18,255'
         batteryColor = '227,182,18,255'
     else
-        barColor = '141,200,50,255'
+        barColor = '51,153,255,255'
         batteryColor = '51,153,255,255'
     end
 

@@ -13,6 +13,7 @@ echo Building Vader LED protocol self-test...
 "%CSC%" /nologo /target:exe /platform:x64 /optimize+ /warn:4 ^
   /out:"%CD%\VaderLedProtocolSelfTest.exe" ^
   /reference:System.dll ^
+  "%CD%\DockBatteryPolicy.cs" ^
   "%CD%\VaderLedProtocol.cs" ^
   "%CD%\VaderLedPolicy.cs" ^
   "%CD%\VaderLedSettings.cs" ^

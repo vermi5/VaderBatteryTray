@@ -2,11 +2,10 @@
 
 ## Purpose
 
-VaderBatteryTray includes optional diagnostic logging for investigating battery reports from Flydigi Vader controllers and Flydigi Dock 2 without changing the normal tray interface.
+Optional diagnostic logging records redacted controller and Dock battery
+reports without changing the normal tray interface. It is disabled by default.
 
-Diagnostic logging is disabled by default.
-
-## Enabling diagnostic logging
+## Enabling logging
 
 Set the environment variable before starting the application:
 
@@ -15,55 +14,43 @@ $env:VADERBATTERYTRAY_DIAGNOSTIC = "1"
 Start-Process ".\VaderBatteryTray.exe"
 ```
 
-The variable is evaluated once when the process starts. Changing or removing it after VaderBatteryTray is already running does not affect that process.
-
-Disable diagnostics for the current PowerShell session with:
+The variable is evaluated once at process startup. Disable it for the current
+PowerShell session with:
 
 ```powershell
 Remove-Item Env:VADERBATTERYTRAY_DIAGNOSTIC -ErrorAction SilentlyContinue
 ```
 
-## Log location
-
-Current log:
+The current and rotated logs are:
 
 ```text
 %LOCALAPPDATA%\VaderBatteryTray\diagnostics.log
-```
-
-Previous rotated log:
-
-```text
 %LOCALAPPDATA%\VaderBatteryTray\diagnostics.previous.log
 ```
 
-The current log rotates when it reaches 5 MiB. Logging failures are ignored so diagnostics cannot interrupt battery reads or application operation. HID interface paths are redacted before being written.
+The log rotates at 5 MiB. Logging errors are ignored and HID paths are
+redacted.
 
-## Data sources
+## GET_INFO source
 
-### GET_INFO
-
-Source:
+The live controller source is:
 
 ```text
 VID 37D7 / PID 2401
+Usage page 0xFFA0 / usage 0x0001
 Flydigi V2 GET_INFO
 ```
 
-GET_INFO provides a status nibble and a level nibble.
+The battery byte contains a status nibble and level nibble:
 
-Current interpretation:
+- status `0`: discharging; levels are displayed in 20-point steps;
+- status `1`: charging; levels represent qualitative physical bands;
+- status `2`: charged;
+- other values: unknown and retained for diagnostics.
 
-- Status `0`: discharging, numeric battery level.
-- Status `1`: charging, qualitative battery band.
-- Status `2`: charged.
-- Other values: unknown and retained for diagnostics.
+## Dock EF source
 
-The numeric discharging level is represented in 20-point steps. These values must not be assumed to use the same scale as Dock EF states.
-
-### Dock EF battery band
-
-Source:
+The powered-off Dock source is:
 
 ```text
 VID 37D7 / PID 6001
@@ -71,42 +58,29 @@ Flydigi Dock 2 EF report
 Opcode 0x39
 ```
 
-Dock EF states are represented as qualitative bands except for the observed
-Full state:
+Active Dock EF states use this approximate display scale:
 
-| Raw state | Displayed band |
-| --- | --- |
-| `0x01`–`0x02` | Low |
-| `0x03` | Medium |
-| `0x04`–`0x05` | High |
-| `0x06` | Full / 100% |
+| Raw state | Display | Physical band |
+| --- | ---: | --- |
+| `0x01` | ~10% | Low / critical |
+| `0x02` | ~25% | Low / red |
+| `0x03` | ~40% | Medium / yellow |
+| `0x04` | ~55% | Medium / yellow |
+| `0x05` | ~70% | High / blue |
+| `0x06` | ~85% | High / blue |
 
-The lower Dock states are deliberately not converted to percentages. The
-`0x04` and `0x05` High states use the controller's observed 80% step only for
-the visual fill. A passive capture observed an off controller transition from
-`0x05` to a sustained `0x06` while its Dock charge LEDs turned off; `0x06` is
-therefore displayed as Full / 100%.
+The percentages provide consistent tray and Rainmeter fill steps; they are not
+measurements. Active `0x06` remains Charging because physical observation
+showed the controller LEDs breathing blue.
 
-The lower state boundaries remain qualitative. They must not be inferred to
-be a continuous six-step percentage scale.
-
-`0x05` currently displays:
-
-```text
-High | Charging | Dock
-```
-
-`0x06` displays:
-
-```text
-100% | Charged | Dock
-```
-
-All raw values remain available in the diagnostic log as `RawDockState`.
+`RawDockFlag` is an activity indicator, not physical Dock presence.
+`RawDockPresenceFlag` records the following field: it was `1` for the observed
+docked charging/full reports and `0` once the empty Dock settled. Inactive
+packets are logged as well as active packets.
 
 ## Diagnostic fields
 
-Each log entry contains tab-separated name/value fields:
+Each entry contains tab-separated fields:
 
 - `TimestampUtc`
 - `Attempt`
@@ -121,39 +95,42 @@ Each log entry contains tab-separated name/value fields:
 - `RawGetInfoStatusNibble`
 - `RawDockFlag`
 - `RawDockState`
+- `RawDockPresenceFlag`
 - `RawGetInfoHex`
 - `RawDockEfHex`
 - `Result`
 
-Unknown or unavailable values are written as `-`. Raw GET_INFO and Dock EF reports are preserved in hexadecimal form.
+Unknown values are written as `-`. Raw GET_INFO and Dock EF reports are
+preserved in hexadecimal form.
 
 ## Dock log deduplication
 
-The background Dock monitor does not write one identical entry per second.
+The background monitor logs:
 
-It logs:
-
-- the first valid Dock observation;
+- the first Dock observation, including inactive reports;
 - a meaningful change in the Dock signature;
 - a heartbeat after five minutes without a change.
 
-The signature includes the raw Dock flag, raw Dock state, percentage, battery band, and availability state. Transitions such as `0x05` to `0x06` remain visible while identical reports are suppressed.
+The signature includes raw flag, raw state, percentage, band, and availability.
+Transitions such as `01 06` to `00 06` therefore remain visible while
+identical reports are suppressed.
 
-If the Dock becomes quiet after a valid `0x06` Full report, the monitor retains
-that Full snapshot while the Dock HID interface remains present. A Dock removal
-or a direct inactive/invalid Dock report clears the cached snapshot.
+Recent raw and confirmed-Full context is stored under:
+
+```text
+HKCU\Software\VaderBatteryTray\RuntimeState
+```
+
+It expires after 12 hours and cannot override a new active EF report. Registry
+failures never interrupt monitoring.
 
 ## Known limitations
 
-- GET_INFO and Dock EF use different representations and should not be compared as measurements on one continuous percentage scale.
-- GET_INFO transport remains `Unknown` until its transport semantics are independently verified.
-- Diagnostic `PowerState` may remain `Unknown` where the protocol meaning has not been proven.
-- The numeric meaning of Dock EF `0x01` through `0x05` is not yet proven.
-- Bytes following the Dock state have been observed to change, but their meaning is not yet documented.
-
-## Related commits
-
-```text
-8030736 Add optional battery diagnostics logging
-13354d4 Use qualitative Dock battery bands
-```
+- GET_INFO and Dock EF use different representations. Dock percentages are a
+  display interpolation, not measurements.
+- GET_INFO transport remains `Unknown` until independently verified.
+- Diagnostic `PowerState` may remain `Unknown` where semantics are unproven.
+- Immediately after removal the Dock can briefly retain its preceding state;
+  the subsequent presence-cleared report invalidates it.
+- The constant payload fields around opcode `0x39` do not have authoritative
+  names.

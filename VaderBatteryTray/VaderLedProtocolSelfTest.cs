@@ -11,6 +11,9 @@ namespace VaderLedProtocolSelfTest
             TestOffVector();
             TestSettingsResolution();
             TestNativeLowBatteryAlertPolicy();
+            TestDockEstimatedScale();
+            TestDockFullTransitions();
+            TestDockRuntimeRestore();
             Console.WriteLine("Vader LED protocol self-test passed.");
         }
 
@@ -68,6 +71,103 @@ namespace VaderLedProtocolSelfTest
             AssertBoolean(false, VaderBatteryTray.VaderLedPolicy.ShouldPreserveNativeLowBatteryAlert(true, true, 40, false, 0), "allow RGB above warning band");
             AssertBoolean(false, VaderBatteryTray.VaderLedPolicy.ShouldPreserveNativeLowBatteryAlert(true, true, 20, true, 1), "allow charging color policy");
             AssertBoolean(false, VaderBatteryTray.VaderLedPolicy.ShouldPreserveNativeLowBatteryAlert(false, true, 20, false, 0), "require live controller session");
+        }
+
+        private static void TestDockEstimatedScale()
+        {
+            DateTime now = new DateTime(2026, 7, 25, 12, 0, 0, DateTimeKind.Utc);
+            VaderBatteryTray.DockBatteryStateTracker tracker =
+                new VaderBatteryTray.DockBatteryStateTracker(null);
+            int[] expectedPercent = new int[] { 10, 25, 40, 55, 70, 85 };
+            int[] expectedBand = new int[] { 1, 1, 2, 2, 3, 3 };
+
+            for (int state = 1; state <= 6; state++)
+            {
+                VaderBatteryTray.DockBatteryDecision decision =
+                    tracker.Process(1, (byte)state, 1, now.AddSeconds(state));
+                AssertBoolean(true, decision.Available, "Dock state available " + state.ToString());
+                AssertBoolean(true, decision.IsCharging, "Dock state charging " + state.ToString());
+                AssertBoolean(false, decision.IsFull, "Dock state not Full " + state.ToString());
+                AssertEqual(expectedPercent[state - 1], decision.Percent, "Dock estimated percent " + state.ToString());
+                AssertEqual(expectedBand[state - 1], decision.BandLevel, "Dock physical band " + state.ToString());
+            }
+        }
+
+        private static void TestDockFullTransitions()
+        {
+            DateTime now = new DateTime(2026, 7, 25, 18, 0, 0, DateTimeKind.Utc);
+            VaderBatteryTray.DockBatteryStateTracker ambiguousTracker =
+                new VaderBatteryTray.DockBatteryStateTracker(null);
+            VaderBatteryTray.DockBatteryDecision ambiguous =
+                ambiguousTracker.Process(0, 0x06, 0, now);
+            AssertBoolean(false, ambiguous.Available, "presence-cleared inactive 0x06 unavailable");
+
+            VaderBatteryTray.DockBatteryDecision presentFull =
+                ambiguousTracker.Process(0, 0x06, 1, now.AddMilliseconds(500));
+            AssertBoolean(true, presentFull.IsFull, "present inactive 0x06 is Full");
+
+            VaderBatteryTray.DockBatteryStateTracker tracker =
+                new VaderBatteryTray.DockBatteryStateTracker(null);
+            tracker.Process(1, 0x06, 1, now);
+            VaderBatteryTray.DockBatteryDecision full =
+                tracker.Process(0, 0x06, 1, now.AddSeconds(1));
+            AssertBoolean(true, full.Available, "active-to-inactive 0x06 available");
+            AssertBoolean(true, full.IsFull, "active-to-inactive 0x06 Full");
+            AssertBoolean(false, full.IsCharging, "Full not charging");
+            AssertEqual(100, full.Percent, "Full percent");
+            AssertEqual(4, full.BandLevel, "Full band");
+
+            VaderBatteryTray.DockBatteryStateTracker redockTracker =
+                new VaderBatteryTray.DockBatteryStateTracker(null);
+            redockTracker.Process(1, 0x01, 1, now.AddSeconds(2));
+            redockTracker.Process(1, 0x01, 1, now.AddSeconds(3));
+            VaderBatteryTray.DockBatteryDecision redockedFull =
+                redockTracker.Process(0, 0x01, 1, now.AddSeconds(4));
+            AssertBoolean(true, redockedFull.IsFull, "insertion without charging settles as Full");
+        }
+
+        private static void TestDockRuntimeRestore()
+        {
+            DateTime now = new DateTime(2026, 7, 25, 20, 0, 0, DateTimeKind.Utc);
+            MemoryDockRuntimeStateStore store = new MemoryDockRuntimeStateStore();
+            store.State.LastRawFlag = 1;
+            store.State.LastRawState = 0x06;
+            store.State.LastPresenceFlag = 1;
+            store.State.LastActiveState = 0x06;
+            store.State.LastActiveUtc = now.AddMinutes(-10);
+
+            VaderBatteryTray.DockBatteryStateTracker tracker =
+                new VaderBatteryTray.DockBatteryStateTracker(store);
+            VaderBatteryTray.DockBatteryDecision restored =
+                tracker.Process(0, 0x06, 1, now);
+            AssertBoolean(true, restored.IsFull, "recent persisted active 0x06 restores Full");
+            AssertBoolean(true, store.State.FullConfirmed, "restored Full persisted");
+
+            VaderBatteryTray.DockBatteryDecision expired =
+                tracker.Process(0, 0x06, 0, now.AddHours(13));
+            AssertBoolean(false, expired.Available, "presence-cleared state invalidates persisted Full");
+
+            VaderBatteryTray.DockBatteryDecision contradiction =
+                tracker.Process(1, 0x03, 1, now.AddHours(13).AddSeconds(1));
+            AssertBoolean(false, contradiction.IsFull, "active state invalidates restored Full");
+            AssertEqual(40, contradiction.Percent, "contradicting active state wins");
+            AssertBoolean(false, store.State.FullConfirmed, "contradiction clears persisted Full");
+        }
+
+        private sealed class MemoryDockRuntimeStateStore : VaderBatteryTray.IDockRuntimeStateStore
+        {
+            public VaderBatteryTray.DockRuntimeState State =
+                new VaderBatteryTray.DockRuntimeState();
+
+            public VaderBatteryTray.DockRuntimeState Load()
+            {
+                return State;
+            }
+
+            public void Save(VaderBatteryTray.DockRuntimeState state)
+            {
+                State = state;
+            }
         }
 
         private static void AssertZones(byte[][] reports, byte red, byte green, byte blue, string name)

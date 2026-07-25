@@ -38,7 +38,7 @@ namespace VaderBatteryTray
         {
             StringBuilder json = new StringBuilder();
             json.Append("{");
-            AppendNumber(json, "schemaVersion", 1, false);
+            AppendNumber(json, "schemaVersion", 2, false);
             AppendString(json, "controller", "Flydigi Vader 5 Pro", true);
 
             if (snapshot == null)
@@ -47,6 +47,7 @@ namespace VaderBatteryTray
                 AppendBoolean(json, "connected", false, true);
                 AppendBoolean(json, "batteryAvailable", false, true);
                 AppendNull(json, "percent", true);
+                AppendBoolean(json, "estimated", false, true);
                 AppendNumber(json, "bandLevel", 0, true);
                 AppendString(json, "band", null, true);
                 AppendBoolean(json, "charging", false, true);
@@ -83,6 +84,11 @@ namespace VaderBatteryTray
             {
                 AppendNull(json, "percent", true);
             }
+            AppendBoolean(
+                json,
+                "estimated",
+                snapshot.HasBatteryBand && !snapshot.HasBattery && snapshot.Percent >= 0,
+                true);
             AppendNumber(json, "bandLevel", snapshot.BandLevel, true);
             AppendString(json, "band", EmptyToNull(snapshot.BandText), true);
             AppendBoolean(json, "charging", snapshot.IsCharging, true);
