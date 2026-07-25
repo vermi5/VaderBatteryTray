@@ -71,27 +71,38 @@ Flydigi Dock 2 EF report
 Opcode 0x39
 ```
 
-Dock EF states are represented as qualitative bands:
+Dock EF states are represented as qualitative bands except for the observed
+Full state:
 
 | Raw state | Displayed band |
 | --- | --- |
 | `0x01`–`0x02` | Low |
 | `0x03` | Medium |
-| `0x04`–`0x06` | High |
+| `0x04`–`0x05` | High |
+| `0x06` | Full / 100% |
 
-Dock states are deliberately not converted to percentages. The `0x04` boundary
-is displayed as High so its visual band matches the controller's observed 80%
-GET_INFO level after undocking.
+The lower Dock states are deliberately not converted to percentages. The
+`0x04` and `0x05` High states use the controller's observed 80% step only for
+the visual fill. A passive capture observed an off controller transition from
+`0x05` to a sustained `0x06` while its Dock charge LEDs turned off; `0x06` is
+therefore displayed as Full / 100%.
 
-Observed tests showed that Dock state `0x06` could be followed by `0x05` within approximately one second. That transition cannot represent a real loss of 15 percentage points, so values such as 85% and 100% would imply unsupported precision.
+The lower state boundaries remain qualitative. They must not be inferred to
+be a continuous six-step percentage scale.
 
-Both `0x05` and `0x06` currently display:
+`0x05` currently displays:
 
 ```text
 High | Charging | Dock
 ```
 
-Their raw values remain available in the diagnostic log as `RawDockState`.
+`0x06` displays:
+
+```text
+100% | Charged | Dock
+```
+
+All raw values remain available in the diagnostic log as `RawDockState`.
 
 ## Diagnostic fields
 
@@ -128,12 +139,16 @@ It logs:
 
 The signature includes the raw Dock flag, raw Dock state, percentage, battery band, and availability state. Transitions such as `0x05` to `0x06` remain visible while identical reports are suppressed.
 
+If the Dock becomes quiet after a valid `0x06` Full report, the monitor retains
+that Full snapshot while the Dock HID interface remains present. A Dock removal
+or a direct inactive/invalid Dock report clears the cached snapshot.
+
 ## Known limitations
 
 - GET_INFO and Dock EF use different representations and should not be compared as measurements on one continuous percentage scale.
 - GET_INFO transport remains `Unknown` until its transport semantics are independently verified.
 - Diagnostic `PowerState` may remain `Unknown` where the protocol meaning has not been proven.
-- Dock state `0x06` is not treated as proof that the battery is fully charged.
+- The numeric meaning of Dock EF `0x01` through `0x05` is not yet proven.
 - Bytes following the Dock state have been observed to change, but their meaning is not yet documented.
 
 ## Related commits

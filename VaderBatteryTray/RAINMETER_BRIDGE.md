@@ -52,7 +52,8 @@ Example exact-battery response:
 ```
 
 For a Dock 2 qualitative reading, `percent` is `null`, `bandLevel` is
-`1`, `2`, or `3`, and `source` is `DockEfBand`.
+`1`, `2`, or `3`, and `source` is `DockEfBand`. The observed Dock EF Full
+state uses `percent: 100`, `bandLevel: 4`, and `band: "Full"`.
 
 Possible `status` values:
 

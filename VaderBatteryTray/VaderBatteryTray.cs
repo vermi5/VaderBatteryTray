@@ -15,8 +15,8 @@ using System.Windows.Forms;
 [assembly: System.Reflection.AssemblyCompany("Open source utility")]
 [assembly: System.Reflection.AssemblyProduct("Vader Battery Tray")]
 [assembly: System.Reflection.AssemblyCopyright("2026")]
-[assembly: System.Reflection.AssemblyVersion("1.1.11.0")]
-[assembly: System.Reflection.AssemblyFileVersion("1.1.11.0")]
+[assembly: System.Reflection.AssemblyVersion("1.1.12.0")]
+[assembly: System.Reflection.AssemblyFileVersion("1.1.12.0")]
 
 namespace VaderBatteryTray
 {
@@ -355,7 +355,7 @@ namespace VaderBatteryTray
             try
             {
                 StringBuilder text = new StringBuilder();
-                text.AppendLine("Vader Battery Tray 1.1.11 diagnostics");
+                text.AppendLine("Vader Battery Tray 1.1.12 diagnostics");
                 text.AppendLine("Generated: " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
                 text.AppendLine("OS: " + Environment.OSVersion);
                 text.AppendLine("64-bit process: " + Environment.Is64BitProcess);
@@ -967,6 +967,23 @@ namespace VaderBatteryTray
                 return ApplyDockDiagnostics(inactive, report, rawFlag, (byte)state, observedUtc);
             }
 
+            if (state == 0x06)
+            {
+                BatterySnapshot full = new BatterySnapshot();
+                full.InterfacePresent = true;
+                full.HasBattery = true;
+                full.HasBatteryBand = true;
+                full.Percent = 100;
+                full.BandLevel = 4;
+                full.BandText = BandText(full.BandLevel);
+                full.IsCharging = false;
+                full.PowerText = "Charged";
+                full.ConnectionText = "Dock";
+                full.RedactedPath = redactedPath;
+                full.Provenance = "Flydigi Dock 2 EF status opcode 0x39, flag " + flag.ToString() + ", state 0x06 (observed full charge)";
+                return ApplyDockDiagnostics(full, report, rawFlag, (byte)state, observedUtc);
+            }
+
             int band = 0;
             if (state == 0x01 || state == 0x02)
             {
@@ -976,7 +993,7 @@ namespace VaderBatteryTray
             {
                 band = 2;
             }
-            else if (state == 0x04 || state == 0x05 || state == 0x06)
+            else if (state == 0x04 || state == 0x05)
             {
                 band = 3;
             }
@@ -1158,7 +1175,7 @@ namespace VaderBatteryTray
                             using (FileStream stream =
                                 new FileStream(handle, FileAccess.Read, inputLength, true))
                             {
-                                SetError("open, waiting for EF report on " + dock.RedactedPath);
+                                SetTransientError("open, waiting for EF report on " + dock.RedactedPath);
 
                                 while (!disposed)
                                 {
@@ -1167,7 +1184,7 @@ namespace VaderBatteryTray
 
                                     if (report == null)
                                     {
-                                        SetError("Dock monitor timed out waiting for EF report");
+                                        SetTransientError("Dock monitor timed out waiting for EF report");
                                         break;
                                     }
 
@@ -1275,6 +1292,25 @@ namespace VaderBatteryTray
                 }
             }
 
+            private void SetTransientError(string error)
+            {
+                lock (sync)
+                {
+                    lastError = error;
+                    if (lastSnapshot != null &&
+                        lastSnapshot.RawDockState.HasValue &&
+                        lastSnapshot.RawDockState.Value == 0x06 &&
+                        lastSnapshot.Percent == 100)
+                    {
+                        return;
+                    }
+
+                    lastSnapshot = null;
+                    lastLoggedDockSignature = String.Empty;
+                    lastDockLogUtc = DateTime.MinValue;
+                }
+            }
+
             private void SleepInterruptible(int milliseconds)
             {
                 DateTime deadline = DateTime.UtcNow.AddMilliseconds(milliseconds);
@@ -1325,6 +1361,8 @@ namespace VaderBatteryTray
                     return "Medium";
                 case 3:
                     return "High";
+                case 4:
+                    return "Full";
                 default:
                     return String.Empty;
             }
@@ -1731,6 +1769,8 @@ namespace VaderBatteryTray
                 case 2:
                     return 62;
                 case 3:
+                    return 80;
+                case 4:
                     return 100;
                 default:
                     return 0;
@@ -1743,7 +1783,7 @@ namespace VaderBatteryTray
             {
                 return 1;
             }
-            if (percent <= 80)
+            if (percent < 80)
             {
                 return 2;
             }
@@ -1759,7 +1799,7 @@ namespace VaderBatteryTray
                 case 2:
                     return Color.FromArgb(245, 184, 42);
                 case 3:
-                    return charging ? Color.FromArgb(53, 168, 255) : Color.FromArgb(53, 196, 110);
+                    return Color.FromArgb(51, 153, 255);
                 default:
                     return Color.Gray;
             }

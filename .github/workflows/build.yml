@@ -27,9 +27,13 @@ jobs:
         shell: cmd
         run: VaderBatteryTray\VaderLedProtocolSelfTest.exe
 
-      - name: Upload compiled application
+      - name: Package distributable ZIP
+        shell: pwsh
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File .\package.ps1
+
+      - name: Upload distributable package
         uses: actions/upload-artifact@v4
         with:
-          name: VaderBatteryTray-windows-x64
-          path: VaderBatteryTray/VaderBatteryTray.exe
+          name: VaderBatteryTray-windows-x64-package
+          path: release/*
           if-no-files-found: error

@@ -137,6 +137,10 @@ function Update()
         elseif bandLevel == 2 then
             level = 66
         elseif bandLevel == 3 then
+            -- Dock EF reports a qualitative high band, not full charge.
+            -- Use the matching controller step to avoid a docking-only jump.
+            level = 80
+        elseif bandLevel == 4 then
             level = 100
         else
             level = 0
@@ -156,7 +160,7 @@ function Update()
         batteryColor = '51,153,255,255'
     end
 
-    local stateText = charging and 'CHARGING' or 'BATTERY'
+    local stateText = charging and 'CHARGING' or (band == 'Full' and 'FULL' or 'BATTERY')
     applyDisplay(stateText, batteryText, connection, power, level, barColor, batteryColor)
     return currentLevel
 end

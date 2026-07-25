@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.1.12 - 2026-07-25
+
+- Dock EF `0x06` is now presented as `100% | Full`, based on a passive capture
+  of an off controller in the Dock when its charge LEDs turned off.
+- Keep the last observed `0x06` Full snapshot while the Dock HID interface is
+  present but has gone quiet, instead of replacing it with Battery unavailable.
+- Align the dock High presentation with the controller's observed 80% step;
+  only the observed Full state fills the tray and Rainmeter indicators.
+- Use the same blue high-level color for the tray icon whether the controller
+  is charging or discharging.
+- Document the packaged Rainmeter skin installation and remove the stale
+  versioned ZIP name from the download instructions.
+
 ## 1.1.11 - 2026-07-24
 
 - Corrected the Dock 2 EF visual-band boundary: state `0x04` now displays as High, matching the observed 80% controller band after undocking.
