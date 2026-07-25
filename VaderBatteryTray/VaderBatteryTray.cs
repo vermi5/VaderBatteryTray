@@ -15,8 +15,8 @@ using System.Windows.Forms;
 [assembly: System.Reflection.AssemblyCompany("Open source utility")]
 [assembly: System.Reflection.AssemblyProduct("Vader Battery Tray")]
 [assembly: System.Reflection.AssemblyCopyright("2026")]
-[assembly: System.Reflection.AssemblyVersion("1.1.12.0")]
-[assembly: System.Reflection.AssemblyFileVersion("1.1.12.0")]
+[assembly: System.Reflection.AssemblyVersion("1.1.13.0")]
+[assembly: System.Reflection.AssemblyFileVersion("1.1.13.0")]
 
 namespace VaderBatteryTray
 {
@@ -355,7 +355,7 @@ namespace VaderBatteryTray
             try
             {
                 StringBuilder text = new StringBuilder();
-                text.AppendLine("Vader Battery Tray 1.1.12 diagnostics");
+                text.AppendLine("Vader Battery Tray 1.1.13 diagnostics");
                 text.AppendLine("Generated: " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
                 text.AppendLine("OS: " + Environment.OSVersion);
                 text.AppendLine("64-bit process: " + Environment.Is64BitProcess);
@@ -390,6 +390,10 @@ namespace VaderBatteryTray
                 text.AppendLine("    Provenance: " + EmptyMarker(snapshot.Provenance));
                 text.AppendLine("    Raw GET_INFO reply: " + EmptyMarker(snapshot.RawReplyHex));
                 text.AppendLine("    Raw dock EF report: " + EmptyMarker(snapshot.RawDockReportHex));
+                text.AppendLine("    Raw dock controller-present field: " +
+                    (snapshot.RawDockPresenceFlag.HasValue
+                        ? snapshot.RawDockPresenceFlag.Value.ToString()
+                        : "(unavailable)"));
                 text.AppendLine("    Error: " + EmptyMarker(snapshot.Error));
                 text.AppendLine();
 
@@ -516,6 +520,7 @@ namespace VaderBatteryTray
         public byte? RawGetInfoStatusNibble;
         public byte? RawDockFlag;
         public byte? RawDockState;
+        public byte? RawDockPresenceFlag;
         // A valid GET_INFO reply was received from the controller in this refresh.
         // Enumeration alone is not enough: an off controller briefly exposes the
         // same HID interfaces while it is docked.
@@ -551,11 +556,14 @@ namespace VaderBatteryTray
         private const int QueryTimeoutMs = 1000;
         private const int DockReadTimeoutMs = 8000;
         private const int QueryAttempts = 1;
+        private readonly DockBatteryStateTracker dockStateTracker;
         private readonly DockStatusMonitor dockMonitor;
 
         public HidBatteryReader()
         {
-            dockMonitor = new DockStatusMonitor();
+            dockStateTracker = new DockBatteryStateTracker(
+                new DockRegistryRuntimeStateStore());
+            dockMonitor = new DockStatusMonitor(dockStateTracker);
         }
 
         public void Dispose()
@@ -890,7 +898,10 @@ namespace VaderBatteryTray
                                 break;
                             }
 
-                            BatterySnapshot snapshot = DecodeDockEfReport(report, dock.RedactedPath);
+                            BatterySnapshot snapshot = DecodeDockEfReport(
+                                report,
+                                dock.RedactedPath,
+                                dockStateTracker);
                             if (snapshot.HasBatteryBand)
                             {
                                 return snapshot;
@@ -941,7 +952,10 @@ namespace VaderBatteryTray
             return buffer;
         }
 
-        private static BatterySnapshot DecodeDockEfReport(byte[] report, string redactedPath)
+        private static BatterySnapshot DecodeDockEfReport(
+            byte[] report,
+            string redactedPath,
+            DockBatteryStateTracker stateTracker)
         {
             DateTime observedUtc = DateTime.UtcNow;
             int offset = FindMagicOffset(report);
@@ -953,72 +967,69 @@ namespace VaderBatteryTray
             {
                 BatterySnapshot invalid = BatterySnapshot.Unavailable("Invalid dock EF report", true);
                 invalid.RedactedPath = redactedPath;
-                return ApplyDockDiagnostics(invalid, report, null, null, observedUtc);
+                return ApplyDockDiagnostics(
+                    invalid,
+                    report,
+                    null,
+                    null,
+                    null,
+                    observedUtc);
             }
 
             byte rawFlag = report[offset + 7];
             int flag = rawFlag;
             int state = report[offset + 8];
-            if (flag == 0)
+            byte presenceFlag = report[offset + 9];
+            DockBatteryDecision decision = stateTracker.Process(
+                rawFlag,
+                (byte)state,
+                presenceFlag,
+                observedUtc);
+            if (!decision.Available)
             {
-                BatterySnapshot inactive = BatterySnapshot.Unavailable("Dock EF reports no active charging controller", true);
+                BatterySnapshot inactive = BatterySnapshot.Unavailable(
+                    "Dock EF: " + decision.Reason,
+                    true);
                 inactive.RedactedPath = redactedPath;
-                inactive.Provenance = "Flydigi Dock 2 EF status opcode 0x39, flag " + flag.ToString() + ", state 0x" + state.ToString("X2");
-                return ApplyDockDiagnostics(inactive, report, rawFlag, (byte)state, observedUtc);
-            }
-
-            if (state == 0x06)
-            {
-                BatterySnapshot full = new BatterySnapshot();
-                full.InterfacePresent = true;
-                full.HasBattery = true;
-                full.HasBatteryBand = true;
-                full.Percent = 100;
-                full.BandLevel = 4;
-                full.BandText = BandText(full.BandLevel);
-                full.IsCharging = false;
-                full.PowerText = "Charged";
-                full.ConnectionText = "Dock";
-                full.RedactedPath = redactedPath;
-                full.Provenance = "Flydigi Dock 2 EF status opcode 0x39, flag " + flag.ToString() + ", state 0x06 (observed full charge)";
-                return ApplyDockDiagnostics(full, report, rawFlag, (byte)state, observedUtc);
-            }
-
-            int band = 0;
-            if (state == 0x01 || state == 0x02)
-            {
-                band = 1;
-            }
-            else if (state == 0x03)
-            {
-                band = 2;
-            }
-            else if (state == 0x04 || state == 0x05)
-            {
-                band = 3;
-            }
-
-            if (band == 0)
-            {
-                BatterySnapshot unknown = BatterySnapshot.Unavailable("Unknown dock battery-band state 0x" + state.ToString("X2"), true);
-                unknown.RedactedPath = redactedPath;
-                unknown.Provenance = "Flydigi Dock 2 EF status state 0x" + state.ToString("X2") + ", flag " + flag.ToString();
-                return ApplyDockDiagnostics(unknown, report, rawFlag, (byte)state, observedUtc);
+                inactive.ConnectionText = "Dock";
+                inactive.Provenance =
+                    "Flydigi Dock 2 EF status opcode 0x39, activity flag " +
+                    flag.ToString() + ", state 0x" + state.ToString("X2") +
+                    ", controller-present field " + presenceFlag.ToString();
+                return ApplyDockDiagnostics(
+                    inactive,
+                    report,
+                    rawFlag,
+                    (byte)state,
+                    presenceFlag,
+                    observedUtc);
             }
 
             BatterySnapshot snapshot = new BatterySnapshot();
             snapshot.InterfacePresent = true;
-            snapshot.HasBattery = false;
+            snapshot.HasBattery = decision.IsFull;
             snapshot.HasBatteryBand = true;
-            snapshot.Percent = -1;
-            snapshot.BandLevel = band;
-            snapshot.BandText = BandText(band);
-            snapshot.IsCharging = flag != 0;
-            snapshot.PowerText = flag != 0 ? "Charging" : "Docked";
+            snapshot.Percent = decision.Percent;
+            snapshot.BandLevel = decision.BandLevel;
+            snapshot.BandText = BandText(decision.BandLevel);
+            snapshot.IsCharging = decision.IsCharging;
+            snapshot.PowerText = decision.IsFull ? "Charged" : "Charging";
             snapshot.ConnectionText = "Dock";
             snapshot.RedactedPath = redactedPath;
-            snapshot.Provenance = "Flydigi Dock 2 EF status opcode 0x39, flag " + flag.ToString() + ", state 0x" + state.ToString("X2");
-            return ApplyDockDiagnostics(snapshot, report, rawFlag, (byte)state, observedUtc);
+            snapshot.Provenance =
+                "Flydigi Dock 2 EF status opcode 0x39, activity flag " +
+                flag.ToString() + ", state 0x" + state.ToString("X2") +
+                ", controller-present field " + presenceFlag.ToString() +
+                (decision.IsFull
+                    ? " (Full inferred: " + decision.Reason + ")"
+                    : " (estimated display percentage)");
+            return ApplyDockDiagnostics(
+                snapshot,
+                report,
+                rawFlag,
+                (byte)state,
+                presenceFlag,
+                observedUtc);
         }
 
         private static BatterySnapshot ApplyDockDiagnostics(
@@ -1026,14 +1037,20 @@ namespace VaderBatteryTray
             byte[] report,
             byte? rawFlag,
             byte? rawState,
+            byte? rawPresenceFlag,
             DateTime observedUtc)
         {
             snapshot.Transport = BatteryTransport.Dock;
-            snapshot.PowerState = BatteryPowerState.Unknown;
+            snapshot.PowerState = snapshot.IsCharging
+                ? BatteryPowerState.Charging
+                : (snapshot.HasBattery && snapshot.Percent == 100
+                    ? BatteryPowerState.Charged
+                    : BatteryPowerState.Unknown);
             snapshot.DataSource = BatteryDataSource.DockEfBand;
             snapshot.RawDockReportHex = Hex(report);
             snapshot.RawDockFlag = rawFlag;
             snapshot.RawDockState = rawState;
+            snapshot.RawDockPresenceFlag = rawPresenceFlag;
             snapshot.UtcObservationTimestamp = observedUtc;
             return snapshot;
         }
@@ -1093,9 +1110,11 @@ namespace VaderBatteryTray
 
             private string lastLoggedDockSignature = String.Empty;
             private DateTime lastDockLogUtc = DateTime.MinValue;
+            private readonly DockBatteryStateTracker stateTracker;
 
-            public DockStatusMonitor()
+            public DockStatusMonitor(DockBatteryStateTracker stateTracker)
             {
+                this.stateTracker = stateTracker;
                 thread = new Thread(Run);
                 thread.IsBackground = true;
                 thread.Name = "Vader Dock EF monitor";
@@ -1189,21 +1208,24 @@ namespace VaderBatteryTray
                                     }
 
                                     BatterySnapshot snapshot =
-                                        DecodeDockEfReport(report, dock.RedactedPath);
+                                        DecodeDockEfReport(
+                                            report,
+                                            dock.RedactedPath,
+                                            stateTracker);
+
+                                    if (ShouldLogDockSnapshot(snapshot))
+                                    {
+                                        DiagnosticLogger.LogSnapshot(
+                                            snapshot,
+                                            snapshot.RedactedPath,
+                                            null,
+                                            String.IsNullOrEmpty(snapshot.Error)
+                                                ? "OK"
+                                                : snapshot.Error);
+                                    }
 
                                     if (snapshot.HasBatteryBand)
                                     {
-                                        if (ShouldLogDockSnapshot(snapshot))
-                                        {
-                                            DiagnosticLogger.LogSnapshot(
-                                                snapshot,
-                                                snapshot.RedactedPath,
-                                                null,
-                                                String.IsNullOrEmpty(snapshot.Error)
-                                                    ? "OK"
-                                                    : snapshot.Error);
-                                        }
-
                                         snapshot.Provenance +=
                                             " via background dock monitor";
 
@@ -1215,7 +1237,7 @@ namespace VaderBatteryTray
                                     }
                                     else
                                     {
-                                        SetError(
+                                        SetReportError(
                                             "received non-band dock report: " +
                                             Hex(report));
                                     }
@@ -1292,15 +1314,24 @@ namespace VaderBatteryTray
                 }
             }
 
+            private void SetReportError(string error)
+            {
+                lock (sync)
+                {
+                    lastSnapshot = null;
+                    lastError = error;
+                }
+            }
+
             private void SetTransientError(string error)
             {
                 lock (sync)
                 {
                     lastError = error;
                     if (lastSnapshot != null &&
-                        lastSnapshot.RawDockState.HasValue &&
-                        lastSnapshot.RawDockState.Value == 0x06 &&
-                        lastSnapshot.Percent == 100)
+                        lastSnapshot.Percent == 100 &&
+                        lastSnapshot.BandLevel == 4 &&
+                        !lastSnapshot.IsCharging)
                     {
                         return;
                     }
@@ -1688,7 +1719,9 @@ namespace VaderBatteryTray
                 else if ((percent >= 0 && percent <= 100) || bandLevel > 0)
                 {
                     int visualPercent = percent >= 0 ? percent : BandPercent(bandLevel);
-                    Color fillColor = BandColor(percent >= 0 ? PercentBand(percent) : bandLevel, charging);
+                    Color fillColor = BandColor(
+                        bandLevel > 0 ? bandLevel : PercentBand(percent),
+                        charging);
 
                     Rectangle inner = new Rectangle(4, 9, 20, 15);
                     using (Brush background = new SolidBrush(Color.FromArgb(235, 245, 245, 245)))
@@ -1799,6 +1832,7 @@ namespace VaderBatteryTray
                 case 2:
                     return Color.FromArgb(245, 184, 42);
                 case 3:
+                case 4:
                     return Color.FromArgb(51, 153, 255);
                 default:
                     return Color.Gray;

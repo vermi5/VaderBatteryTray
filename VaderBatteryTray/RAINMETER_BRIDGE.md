@@ -32,12 +32,13 @@ Example exact-battery response:
 
 ```json
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "controller": "Flydigi Vader 5 Pro",
   "status": "ok",
   "connected": true,
   "batteryAvailable": true,
   "percent": 80,
+  "estimated": false,
   "bandLevel": 3,
   "band": "High",
   "charging": false,
@@ -51,9 +52,10 @@ Example exact-battery response:
 }
 ```
 
-For a Dock 2 qualitative reading, `percent` is `null`, `bandLevel` is
-`1`, `2`, or `3`, and `source` is `DockEfBand`. The observed Dock EF Full
-state uses `percent: 100`, `bandLevel: 4`, and `band: "Full"`.
+For an active Dock 2 reading, `percent` is one of `10`, `25`, `40`, `55`,
+`70`, or `85`, `estimated` is `true`, and `source` is `DockEfBand`.
+Confirmed Full uses `percent: 100`, `estimated: false`, `bandLevel: 4`, and
+`band: "Full"`.
 
 Possible `status` values:
 
@@ -74,3 +76,7 @@ traffic; it only retrieves the cached JSON snapshot.
 The bundled controller skin uses the command endpoint only when the user
 explicitly clicks refresh or middle-clicks the skin. No device configuration,
 lighting, mapping, or firmware command is exposed.
+
+The skin shows approximate Dock values with a `~` prefix. Its fill width and
+both color indicators use the same normalized percentage and physical band as
+the tray icon.
