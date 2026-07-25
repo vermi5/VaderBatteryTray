@@ -10,6 +10,7 @@ namespace VaderLedProtocolSelfTest
             TestConfiguredColorAndBrightness();
             TestOffVector();
             TestSettingsResolution();
+            TestNativeLowBatteryAlertPolicy();
             Console.WriteLine("Vader LED protocol self-test passed.");
         }
 
@@ -58,6 +59,15 @@ namespace VaderLedProtocolSelfTest
             AssertByte(100, VaderBatteryTray.VaderLedSettings.ResolveBrightness("100", 40), "maximum environment brightness");
             AssertByte(25, VaderBatteryTray.VaderLedSettings.ResolveBrightness("invalid", 40), "invalid environment brightness");
             AssertByte(25, VaderBatteryTray.VaderLedSettings.ResolveBrightness("101", 40), "out-of-range environment brightness");
+        }
+
+        private static void TestNativeLowBatteryAlertPolicy()
+        {
+            AssertBoolean(true, VaderBatteryTray.VaderLedPolicy.ShouldPreserveNativeLowBatteryAlert(true, true, 20, false, 0), "preserve awake 20 percent warning");
+            AssertBoolean(true, VaderBatteryTray.VaderLedPolicy.ShouldPreserveNativeLowBatteryAlert(true, true, 0, false, 0), "preserve awake zero percent warning");
+            AssertBoolean(false, VaderBatteryTray.VaderLedPolicy.ShouldPreserveNativeLowBatteryAlert(true, true, 40, false, 0), "allow RGB above warning band");
+            AssertBoolean(false, VaderBatteryTray.VaderLedPolicy.ShouldPreserveNativeLowBatteryAlert(true, true, 20, true, 1), "allow charging color policy");
+            AssertBoolean(false, VaderBatteryTray.VaderLedPolicy.ShouldPreserveNativeLowBatteryAlert(false, true, 20, false, 0), "require live controller session");
         }
 
         private static void AssertZones(byte[][] reports, byte red, byte green, byte blue, string name)

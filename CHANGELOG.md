@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Preserve the controller firmware's native red low-battery pulse by avoiding
+  RGB writes while an awake controller is discharging at 20% or below.
+
 ## 1.1.12 - 2026-07-25
 
 - Dock EF `0x06` is now presented as `100% | Full`, based on a passive capture

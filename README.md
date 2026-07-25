@@ -47,6 +47,10 @@ lighting commands to an off controller merely enumerated by the Dock. For a
 controller actively responding to `GET_INFO` while docked, it can apply the
 battery color.
 
+At 20% or below while an awake controller is discharging, the application
+leaves lighting control to the controller firmware so its native red
+low-battery pulse remains visible.
+
 Advanced users can override the saved settings when starting the process:
 
 ```text
