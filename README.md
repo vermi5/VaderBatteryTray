@@ -9,7 +9,7 @@ Vader 5 Pro without trusting the often incorrect generic XInput battery value.
 ## Download
 
 1. Open the [latest release](https://github.com/vermi5/VaderBatteryTray/releases/latest).
-2. Download `VaderBatteryTray-1.1.9.zip`.
+2. Download the ZIP asset from that release.
 3. Extract the ZIP to a permanent folder.
 4. Double-click `VaderBatteryTray.exe`.
 
@@ -90,7 +90,8 @@ open the controller HID interface. Running the tray application does.
 
 An optional skin is included under `rainmeter/RainformerHWi/Controller`. See
 [RAINMETER_BRIDGE.md](VaderBatteryTray/RAINMETER_BRIDGE.md) for the local API
-and setup details.
+and setup details. Copy the `RainformerHWi` folder to your Rainmeter `Skins`
+directory, then refresh the `RainformerHWi\\Controller` skin.
 
 ## Help and contributions
 

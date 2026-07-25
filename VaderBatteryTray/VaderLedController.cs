@@ -182,6 +182,7 @@ namespace VaderBatteryTray
                     blue = 0;
                     return true;
                 case 3:
+                case 4:
                     red = 51;
                     green = 153;
                     blue = 255;

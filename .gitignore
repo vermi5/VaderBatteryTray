@@ -13,3 +13,4 @@ VaderBatteryTray/VaderLedProtocolSelfTest.exe
 *.log
 artifacts/
 release/
+release-staging/
