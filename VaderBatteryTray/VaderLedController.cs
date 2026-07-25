@@ -127,6 +127,20 @@ namespace VaderBatteryTray
                 return;
             }
 
+            if (VaderLedPolicy.ShouldPreserveNativeLowBatteryAlert(
+                snapshot.HasLiveControllerSession,
+                snapshot.HasBattery,
+                snapshot.Percent,
+                snapshot.IsCharging,
+                snapshot.RawGetInfoStatusNibble))
+            {
+                // The controller firmware owns the faster red low-battery pulse
+                // while the controller is awake. Forget our previous color so it
+                // is reapplied after the controller leaves the warning band.
+                lastSignature = null;
+                return;
+            }
+
             byte red;
             byte green;
             byte blue;

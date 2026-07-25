@@ -14,6 +14,7 @@ echo Building Vader LED protocol self-test...
   /out:"%CD%\VaderLedProtocolSelfTest.exe" ^
   /reference:System.dll ^
   "%CD%\VaderLedProtocol.cs" ^
+  "%CD%\VaderLedPolicy.cs" ^
   "%CD%\VaderLedSettings.cs" ^
   "%CD%\VaderLedProtocolSelfTest.cs"
 
