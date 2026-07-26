@@ -15,8 +15,8 @@ using System.Windows.Forms;
 [assembly: System.Reflection.AssemblyCompany("Open source utility")]
 [assembly: System.Reflection.AssemblyProduct("Vader Battery Tray")]
 [assembly: System.Reflection.AssemblyCopyright("2026")]
-[assembly: System.Reflection.AssemblyVersion("1.1.13.0")]
-[assembly: System.Reflection.AssemblyFileVersion("1.1.13.0")]
+[assembly: System.Reflection.AssemblyVersion("1.1.14.0")]
+[assembly: System.Reflection.AssemblyFileVersion("1.1.14.0")]
 
 namespace VaderBatteryTray
 {
@@ -88,10 +88,12 @@ namespace VaderBatteryTray
         private readonly ToolStripMenuItem ledSettingsStatusMenuItem;
         private readonly System.Windows.Forms.Timer refreshTimer;
         private readonly System.Windows.Forms.Timer commandTimer;
+        private readonly System.Windows.Forms.Timer wakeRefreshTimer;
         private readonly HidBatteryReader reader;
         private readonly VaderLedController ledController;
         private readonly SharedBatteryState sharedState;
         private readonly RainmeterBridge rainmeterBridge;
+        private readonly HidDeviceChangeWindow deviceChangeWindow;
 
         private Icon currentIcon;
         private int lastPercent = -2;
@@ -101,6 +103,8 @@ namespace VaderBatteryTray
         private bool lastConnected;
         private BatterySnapshot lastSnapshot;
         private int refreshRequested;
+        private bool controllerUnavailableSeen;
+        private bool wakeReadingDeferred;
 
         public TrayApplicationContext()
         {
@@ -109,6 +113,7 @@ namespace VaderBatteryTray
             sharedState = new SharedBatteryState();
             rainmeterBridge = new RainmeterBridge(sharedState, RequestRefresh);
             rainmeterBridge.Start();
+            deviceChangeWindow = new HidDeviceChangeWindow(RequestRefresh);
 
             notifyIcon = new NotifyIcon();
             notifyIcon.Text = "Vader 5 Pro | Starting...";
@@ -175,12 +180,58 @@ namespace VaderBatteryTray
             };
             commandTimer.Start();
 
+            wakeRefreshTimer = new System.Windows.Forms.Timer();
+            wakeRefreshTimer.Interval = 1250;
+            wakeRefreshTimer.Tick += delegate
+            {
+                wakeRefreshTimer.Stop();
+                RefreshStatus();
+            };
+
             RefreshStatus();
         }
 
         private void RequestRefresh()
         {
             Interlocked.Exchange(ref refreshRequested, 1);
+        }
+
+        private bool ShouldDeferWakeReading(BatterySnapshot snapshot)
+        {
+            if (snapshot == null)
+            {
+                return false;
+            }
+
+            if (!snapshot.ControllerInterfacePresent &&
+                !snapshot.HasBattery &&
+                !snapshot.HasBatteryBand)
+            {
+                controllerUnavailableSeen = true;
+                wakeReadingDeferred = false;
+                return false;
+            }
+
+            if (controllerUnavailableSeen &&
+                snapshot.HasLiveControllerSession &&
+                !wakeReadingDeferred)
+            {
+                // The first GET_INFO immediately after HID re-enumeration can
+                // report the controller's initial 10% step. Keep the explicit
+                // asleep/off state briefly and publish the next stable reply.
+                wakeReadingDeferred = true;
+                wakeRefreshTimer.Stop();
+                wakeRefreshTimer.Start();
+                return true;
+            }
+
+            if (snapshot.HasLiveControllerSession)
+            {
+                controllerUnavailableSeen = false;
+                wakeReadingDeferred = false;
+            }
+
+            return false;
         }
 
         private void ToggleLedControl()
@@ -302,6 +353,10 @@ namespace VaderBatteryTray
             try
             {
                 BatterySnapshot snapshot = reader.ReadBattery();
+                if (ShouldDeferWakeReading(snapshot))
+                {
+                    return;
+                }
                 lastSnapshot = snapshot;
                 sharedState.Publish(snapshot);
                 ledController.ApplySnapshot(snapshot);
@@ -323,19 +378,21 @@ namespace VaderBatteryTray
                     statusMenuItem.Text = LimitText(menuText, 120);
                     SetTrayVisual(snapshot.Percent >= 0 ? snapshot.Percent : -1, snapshot.BandLevel, snapshot.IsCharging, true, LimitText(tooltip, 63));
                 }
+                else if (!snapshot.ControllerInterfacePresent && snapshot.DockInterfacePresent)
+                {
+                    statusMenuItem.Text = "Vader 5 Pro: controller asleep or turned off";
+                    string tooltip = "Vader 5 Pro | Controller asleep or off";
+                    SetTrayVisual(-1, 0, snapshot.IsCharging, true, LimitText(tooltip, 63));
+                }
+                else if (!snapshot.ControllerInterfacePresent && !snapshot.DockInterfacePresent)
+                {
+                    statusMenuItem.Text = "Vader 5 Pro: receiver disconnected";
+                    SetTrayVisual(-1, 0, false, false, "Vader 5 Pro | Receiver disconnected");
+                }
                 else if (snapshot.InterfacePresent)
                 {
-                    statusMenuItem.Text = LimitText("Vader 5 Pro: battery unavailable - " + snapshot.Error, 120);
-                    string tooltip = "Vader 5 Pro | Battery unavailable";
-                    if (!String.IsNullOrEmpty(snapshot.PowerText))
-                    {
-                        tooltip += " | " + snapshot.PowerText;
-                    }
-                    if (!String.IsNullOrEmpty(snapshot.ConnectionText))
-                    {
-                        tooltip += " | " + snapshot.ConnectionText;
-                    }
-                    SetTrayVisual(-1, 0, snapshot.IsCharging, true, LimitText(tooltip, 63));
+                    statusMenuItem.Text = LimitText("Vader 5 Pro: controller waking or unavailable - " + snapshot.Error, 120);
+                    SetTrayVisual(-1, 0, snapshot.IsCharging, true, "Vader 5 Pro | Controller unavailable");
                 }
                 else
                 {
@@ -357,7 +414,7 @@ namespace VaderBatteryTray
             try
             {
                 StringBuilder text = new StringBuilder();
-                text.AppendLine("Vader Battery Tray 1.1.13 diagnostics");
+                text.AppendLine("Vader Battery Tray 1.1.14 diagnostics");
                 text.AppendLine("Generated: " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
                 text.AppendLine("OS: " + Environment.OSVersion);
                 text.AppendLine("64-bit process: " + Environment.Is64BitProcess);
@@ -380,8 +437,14 @@ namespace VaderBatteryTray
                 sharedState.Publish(snapshot);
                 text.AppendLine("Last query:");
                 text.AppendLine("    Interface present: " + snapshot.InterfacePresent);
+                text.AppendLine("    Controller HID present: " + snapshot.ControllerInterfacePresent);
+                text.AppendLine("    Dock/receiver HID present: " + snapshot.DockInterfacePresent);
                 text.AppendLine("    Has battery: " + snapshot.HasBattery);
-                text.AppendLine("    Percent: " + (snapshot.HasBattery ? snapshot.Percent.ToString() : (snapshot.HasBatteryBand && snapshot.Percent >= 0 ? snapshot.Percent + " (approximate)" : "(unavailable)")));
+                text.AppendLine("    Percent: " +
+                    (snapshot.Percent >= 0
+                        ? snapshot.Percent.ToString() +
+                            (snapshot.PercentEstimated ? " (estimated)" : "")
+                        : "(unavailable)"));
                 text.AppendLine("    Has battery band: " + snapshot.HasBatteryBand);
                 text.AppendLine("    Battery band: " + EmptyMarker(snapshot.BandText));
                 text.AppendLine("    Power: " + EmptyMarker(snapshot.PowerText));
@@ -391,6 +454,10 @@ namespace VaderBatteryTray
                 text.AppendLine("    Interface path: " + EmptyMarker(snapshot.RedactedPath));
                 text.AppendLine("    Provenance: " + EmptyMarker(snapshot.Provenance));
                 text.AppendLine("    Raw GET_INFO reply: " + EmptyMarker(snapshot.RawReplyHex));
+                text.AppendLine("    Raw GET_INFO level nibble: " +
+                    (snapshot.RawGetInfoLevelNibble.HasValue
+                        ? snapshot.RawGetInfoLevelNibble.Value.ToString()
+                        : "(unavailable)"));
                 text.AppendLine("    Raw dock EF report: " + EmptyMarker(snapshot.RawDockReportHex));
                 text.AppendLine("    Raw dock controller-present field: " +
                     (snapshot.RawDockPresenceFlag.HasValue
@@ -456,6 +523,12 @@ namespace VaderBatteryTray
                 commandTimer.Dispose();
             }
 
+            if (wakeRefreshTimer != null)
+            {
+                wakeRefreshTimer.Stop();
+                wakeRefreshTimer.Dispose();
+            }
+
             if (rainmeterBridge != null)
             {
                 rainmeterBridge.Dispose();
@@ -464,6 +537,11 @@ namespace VaderBatteryTray
             if (reader != null)
             {
                 reader.Dispose();
+            }
+
+            if (deviceChangeWindow != null)
+            {
+                deviceChangeWindow.Dispose();
             }
 
             notifyIcon.Visible = false;
@@ -497,11 +575,106 @@ namespace VaderBatteryTray
         }
     }
 
+    internal sealed class HidDeviceChangeWindow : NativeWindow, IDisposable
+    {
+        private const int WmDeviceChange = 0x0219;
+        private const int DbtDeviceArrival = 0x8000;
+        private const int DbtDeviceRemoveComplete = 0x8004;
+        private const int DbtDevNodesChanged = 0x0007;
+
+        private readonly Action requestRefresh;
+        private IntPtr notificationFilter;
+        private IntPtr notificationHandle;
+        private System.Threading.Timer refreshDelayTimer;
+
+        public HidDeviceChangeWindow(Action requestRefresh)
+        {
+            this.requestRefresh = requestRefresh;
+            CreateHandle(new CreateParams());
+
+            Native.DEV_BROADCAST_DEVICEINTERFACE filter =
+                new Native.DEV_BROADCAST_DEVICEINTERFACE();
+            filter.dbcc_size = Marshal.SizeOf(typeof(Native.DEV_BROADCAST_DEVICEINTERFACE));
+            filter.dbcc_devicetype = Native.DBT_DEVTYP_DEVICEINTERFACE;
+            Native.HidD_GetHidGuid(out filter.dbcc_classguid);
+
+            notificationFilter = Marshal.AllocHGlobal(filter.dbcc_size);
+            Marshal.StructureToPtr(filter, notificationFilter, false);
+            notificationHandle = Native.RegisterDeviceNotification(
+                Handle,
+                notificationFilter,
+                Native.DEVICE_NOTIFY_WINDOW_HANDLE);
+        }
+
+        protected override void WndProc(ref Message message)
+        {
+            if (message.Msg == WmDeviceChange)
+            {
+                int change = message.WParam.ToInt32();
+                if (change == DbtDeviceArrival ||
+                    change == DbtDeviceRemoveComplete ||
+                    change == DbtDevNodesChanged)
+                {
+                    RequestRefreshOnce();
+                }
+            }
+
+            base.WndProc(ref message);
+        }
+
+        public void Dispose()
+        {
+            if (notificationHandle != IntPtr.Zero)
+            {
+                Native.UnregisterDeviceNotification(notificationHandle);
+                notificationHandle = IntPtr.Zero;
+            }
+            if (notificationFilter != IntPtr.Zero)
+            {
+                Marshal.FreeHGlobal(notificationFilter);
+                notificationFilter = IntPtr.Zero;
+            }
+            if (refreshDelayTimer != null)
+            {
+                refreshDelayTimer.Dispose();
+                refreshDelayTimer = null;
+            }
+            DestroyHandle();
+        }
+
+        private void RequestRefreshOnce()
+        {
+            if (refreshDelayTimer == null)
+            {
+                refreshDelayTimer = new System.Threading.Timer(
+                    delegate(object state) { RequestRefresh(); },
+                    null,
+                    750,
+                    Timeout.Infinite);
+            }
+            else
+            {
+                refreshDelayTimer.Change(750, Timeout.Infinite);
+            }
+        }
+
+        private void RequestRefresh()
+        {
+            if (requestRefresh != null)
+            {
+                requestRefresh();
+            }
+        }
+    }
+
     internal sealed class BatterySnapshot
     {
         public bool InterfacePresent;
+        public bool ControllerInterfacePresent;
+        public bool DockInterfacePresent;
         public bool HasBattery;
         public bool HasBatteryBand;
+        public bool PercentEstimated;
         public int Percent;
         public int BandLevel;
         public string BandText;
@@ -520,6 +693,7 @@ namespace VaderBatteryTray
         public BatteryPowerState PowerState;
         public BatteryDataSource DataSource;
         public byte? RawGetInfoStatusNibble;
+        public byte? RawGetInfoLevelNibble;
         public byte? RawDockFlag;
         public byte? RawDockState;
         public byte? RawDockPresenceFlag;
@@ -589,46 +763,45 @@ namespace VaderBatteryTray
                     last == null ? "null snapshot" : (String.IsNullOrEmpty(last.Error) ? "OK" : last.Error));
                 if (last.HasBattery)
                 {
-                    if (last.Percent < 100)
-                    {
-                        return last;
-                    }
-
-                    // Preserve the valid 100% GET_INFO result while checking Dock 2 state.
+                    // GET_INFO can report status=Discharging and connection=Wireless
+                    // while an awake controller is physically charging in Dock 2.
+                    // Preserve the controller result, but let a present, active Dock
+                    // EF report take precedence before publishing the snapshot.
                     break;
                 }
 
-                if (last.HasBatteryBand && last.Percent >= 0)
-                {
-                    return last;
-                }
                 if (last.Error == "Flydigi HID V2 interface not found")
                 {
                     break;
-                }
-                if ((last.Error != null && last.Error.StartsWith("Unsupported firmware", StringComparison.Ordinal)) ||
-                    (last.Error != null && last.Error.StartsWith("Unexpected Flydigi device ID", StringComparison.Ordinal)) ||
-                    last.Error == "Invalid GET_INFO reply")
-                {
-                    return last;
                 }
                 Thread.Sleep(100);
             }
 
             BatterySnapshot monitorSnapshot = dockMonitor.WaitForSnapshot(2500);
-            if (monitorSnapshot.HasBatteryBand)
+            BatterySnapshot dock = ReadDockBatteryBand();
+            bool controllerPresent = last != null && last.InterfacePresent;
+            bool dockPresent = dock != null && dock.InterfacePresent;
+            BatterySnapshot result;
+            if (BatterySourcePolicy.ShouldPreferDock(
+                monitorSnapshot.HasBatteryBand,
+                monitorSnapshot.IsCharging,
+                last != null && last.HasLiveControllerSession))
             {
-                return AttachLiveControllerSession(monitorSnapshot, last);
+                result = AttachLiveControllerSession(monitorSnapshot, last);
+                return FinalizeInterfacePresence(result, controllerPresent, dockPresent);
             }
 
-            BatterySnapshot dock = ReadDockBatteryBand();
-            if (dock.HasBatteryBand)
+            if (BatterySourcePolicy.ShouldPreferDock(
+                dock.HasBatteryBand,
+                dock.IsCharging,
+                last != null && last.HasLiveControllerSession))
             {
-                return AttachLiveControllerSession(dock, last);
+                result = AttachLiveControllerSession(dock, last);
+                return FinalizeInterfacePresence(result, controllerPresent, dockPresent);
             }
-            if (last != null && last.HasBattery)
+            if (last != null && (last.HasBattery || last.HasBatteryBand))
             {
-                return last;
+                return FinalizeInterfacePresence(last, controllerPresent, dockPresent);
             }
 
             if (monitorSnapshot != null && monitorSnapshot.Error != null && monitorSnapshot.Error.StartsWith("Dock monitor:", StringComparison.Ordinal))
@@ -637,12 +810,29 @@ namespace VaderBatteryTray
                 {
                     BatterySnapshot combined = BatterySnapshot.Unavailable(monitorSnapshot.Error + "; one-shot fallback: " + dock.Error, true);
                     combined.RedactedPath = !String.IsNullOrEmpty(dock.RedactedPath) ? dock.RedactedPath : monitorSnapshot.RedactedPath;
-                    return combined;
+                    return FinalizeInterfacePresence(combined, controllerPresent, dockPresent);
                 }
-                return monitorSnapshot;
+                return FinalizeInterfacePresence(monitorSnapshot, controllerPresent, dockPresent);
             }
 
-            return dock ?? last ?? BatterySnapshot.Unavailable("GET_INFO reply not received", true);
+            result = dock ?? last ?? BatterySnapshot.Unavailable("GET_INFO reply not received", false);
+            return FinalizeInterfacePresence(result, controllerPresent, dockPresent);
+        }
+
+        private static BatterySnapshot FinalizeInterfacePresence(
+            BatterySnapshot snapshot,
+            bool controllerPresent,
+            bool dockPresent)
+        {
+            if (snapshot == null)
+            {
+                snapshot = BatterySnapshot.Unavailable("No battery snapshot", false);
+            }
+
+            snapshot.ControllerInterfacePresent = controllerPresent;
+            snapshot.DockInterfacePresent = dockPresent;
+            snapshot.InterfacePresent = controllerPresent || dockPresent;
+            return snapshot;
         }
 
         private static BatterySnapshot AttachLiveControllerSession(BatterySnapshot dockSnapshot, BatterySnapshot controllerSnapshot)
@@ -777,7 +967,12 @@ namespace VaderBatteryTray
             {
                 BatterySnapshot invalid = BatterySnapshot.Unavailable("Invalid GET_INFO reply", true);
                 invalid.RedactedPath = redactedPath;
-                return ApplyGetInfoDiagnostics(invalid, response, null, observedUtc);
+                return ApplyGetInfoDiagnostics(
+                    invalid,
+                    response,
+                    null,
+                    null,
+                    observedUtc);
             }
 
             byte deviceId = response[offset + 5];
@@ -792,7 +987,12 @@ namespace VaderBatteryTray
             {
                 BatterySnapshot wrongDevice = BatterySnapshot.Unavailable("Unexpected Flydigi device ID " + deviceId.ToString(), true);
                 wrongDevice.RedactedPath = redactedPath;
-                return ApplyGetInfoDiagnostics(wrongDevice, response, statusNibble, observedUtc);
+                return ApplyGetInfoDiagnostics(
+                    wrongDevice,
+                    response,
+                    statusNibble,
+                    (byte)level,
+                    observedUtc);
             }
 
             if (firmware < MinimumVader5Firmware)
@@ -801,7 +1001,12 @@ namespace VaderBatteryTray
                 oldFirmware.RedactedPath = redactedPath;
                 oldFirmware.DeviceId = deviceId.ToString();
                 oldFirmware.Firmware = "0x" + firmware.ToString("X4");
-                return ApplyGetInfoDiagnostics(oldFirmware, response, statusNibble, observedUtc);
+                return ApplyGetInfoDiagnostics(
+                    oldFirmware,
+                    response,
+                    statusNibble,
+                    (byte)level,
+                    observedUtc);
             }
 
             BatterySnapshot snapshot = new BatterySnapshot();
@@ -816,27 +1021,46 @@ namespace VaderBatteryTray
 
             if (status == 0)
             {
-                snapshot.HasBattery = true;
-                snapshot.Percent = Math.Max(0, Math.Min(5, level)) * 20;
-                snapshot.BandLevel = ChargingBandFromLevel(level);
-                snapshot.BandText = BandText(snapshot.BandLevel);
-                snapshot.IsCharging = false;
-                snapshot.PowerText = "Discharging";
+                snapshot.Percent = BatteryDisplayScale.PercentFromLevel(level);
+                snapshot.HasBattery = snapshot.Percent >= 0;
+                snapshot.PercentEstimated = snapshot.Percent >= 0;
+                if (snapshot.HasBattery)
+                {
+                    snapshot.BandLevel = ChargingBandFromLevel(level);
+                    snapshot.BandText = BandText(snapshot.BandLevel);
+                    snapshot.IsCharging = false;
+                    snapshot.PowerText = "Discharging";
+                }
+                else
+                {
+                    snapshot.Error =
+                        "Unknown GET_INFO battery level nibble " + level.ToString();
+                }
             }
             else if (status == 1)
             {
+                snapshot.Percent = BatteryDisplayScale.PercentFromLevel(level);
                 snapshot.HasBattery = false;
-                snapshot.HasBatteryBand = true;
-                snapshot.Percent = -1;
-                snapshot.BandLevel = ChargingBandFromLevel(level);
-                snapshot.BandText = BandText(snapshot.BandLevel);
-                snapshot.IsCharging = true;
-                snapshot.PowerText = "Charging";
+                snapshot.HasBatteryBand = snapshot.Percent >= 0;
+                snapshot.PercentEstimated = snapshot.Percent >= 0;
+                if (snapshot.HasBatteryBand)
+                {
+                    snapshot.BandLevel = ChargingBandFromLevel(level);
+                    snapshot.BandText = BandText(snapshot.BandLevel);
+                    snapshot.IsCharging = true;
+                    snapshot.PowerText = "Charging";
+                }
+                else
+                {
+                    snapshot.Error =
+                        "Unknown GET_INFO battery level nibble " + level.ToString();
+                }
             }
             else if (status == 2)
             {
                 snapshot.HasBattery = true;
                 snapshot.Percent = 100;
+                snapshot.PercentEstimated = false;
                 snapshot.BandLevel = 3;
                 snapshot.BandText = BandText(snapshot.BandLevel);
                 snapshot.IsCharging = false;
@@ -850,20 +1074,33 @@ namespace VaderBatteryTray
                 snapshot.Error = "Unknown battery status nibble " + status.ToString();
             }
 
-            return ApplyGetInfoDiagnostics(snapshot, response, statusNibble, observedUtc);
+            return ApplyGetInfoDiagnostics(
+                snapshot,
+                response,
+                statusNibble,
+                (byte)level,
+                observedUtc);
         }
 
         private static BatterySnapshot ApplyGetInfoDiagnostics(
             BatterySnapshot snapshot,
             byte[] response,
             byte? statusNibble,
+            byte? levelNibble,
             DateTime observedUtc)
         {
             snapshot.Transport = BatteryTransport.Unknown;
-            snapshot.PowerState = BatteryPowerState.Unknown;
+            snapshot.PowerState = snapshot.IsCharging
+                ? BatteryPowerState.Charging
+                : (snapshot.HasBattery && snapshot.Percent == 100
+                    ? BatteryPowerState.Charged
+                    : (snapshot.HasBattery
+                        ? BatteryPowerState.Discharging
+                        : BatteryPowerState.Unknown));
             snapshot.DataSource = BatteryDataSource.GetInfo;
             snapshot.RawReplyHex = Hex(response);
             snapshot.RawGetInfoStatusNibble = statusNibble;
+            snapshot.RawGetInfoLevelNibble = levelNibble;
             snapshot.UtcObservationTimestamp = observedUtc;
             return snapshot;
         }
@@ -1012,6 +1249,7 @@ namespace VaderBatteryTray
             snapshot.HasBattery = decision.IsFull;
             snapshot.HasBatteryBand = true;
             snapshot.Percent = decision.Percent;
+            snapshot.PercentEstimated = !decision.IsFull;
             snapshot.BandLevel = decision.BandLevel;
             snapshot.BandText = BandText(decision.BandLevel);
             snapshot.IsCharging = decision.IsCharging;
@@ -1102,6 +1340,8 @@ namespace VaderBatteryTray
         {
             private static readonly TimeSpan DiagnosticHeartbeatInterval =
                 TimeSpan.FromMinutes(5);
+            private static readonly TimeSpan SnapshotFreshnessLifetime =
+                TimeSpan.FromSeconds(3);
 
             private readonly object sync = new object();
             private readonly Thread thread;
@@ -1145,7 +1385,19 @@ namespace VaderBatteryTray
                 {
                     if (lastSnapshot != null)
                     {
-                        return lastSnapshot;
+                        DateTime observedUtc =
+                            lastSnapshot.UtcObservationTimestamp;
+                        if (observedUtc != DateTime.MinValue &&
+                            observedUtc <= DateTime.UtcNow &&
+                            DateTime.UtcNow - observedUtc <=
+                                SnapshotFreshnessLifetime)
+                        {
+                            return lastSnapshot;
+                        }
+
+                        return BatterySnapshot.Unavailable(
+                            "Dock monitor: last EF snapshot is stale",
+                            true);
                     }
 
                     return BatterySnapshot.Unavailable("Dock monitor: " + lastError, true);
@@ -1330,6 +1582,9 @@ namespace VaderBatteryTray
                 lock (sync)
                 {
                     lastError = error;
+                    // A confirmed Full snapshot may be retained as transition
+                    // evidence, but GetSnapshot applies a strict freshness limit
+                    // before it can override a live controller reply.
                     if (lastSnapshot != null &&
                         lastSnapshot.Percent == 100 &&
                         lastSnapshot.BandLevel == 4 &&
@@ -1856,6 +2111,8 @@ namespace VaderBatteryTray
         public const uint OPEN_EXISTING = 3;
         public const uint FILE_FLAG_OVERLAPPED = 0x40000000;
         public const int HIDP_STATUS_SUCCESS = 0x00110000;
+        public const int DBT_DEVTYP_DEVICEINTERFACE = 0x00000005;
+        public const uint DEVICE_NOTIFY_WINDOW_HANDLE = 0x00000000;
 
         [StructLayout(LayoutKind.Sequential)]
         public struct SP_DEVICE_INTERFACE_DATA
@@ -1897,8 +2154,28 @@ namespace VaderBatteryTray
             public ushort NumberFeatureDataIndices;
         }
 
+        [StructLayout(LayoutKind.Sequential)]
+        public struct DEV_BROADCAST_DEVICEINTERFACE
+        {
+            public int dbcc_size;
+            public int dbcc_devicetype;
+            public int dbcc_reserved;
+            public Guid dbcc_classguid;
+        }
+
         [DllImport("hid.dll")]
         public static extern void HidD_GetHidGuid(out Guid hidGuid);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        public static extern IntPtr RegisterDeviceNotification(
+            IntPtr recipient,
+            IntPtr notificationFilter,
+            uint flags);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool UnregisterDeviceNotification(
+            IntPtr handle);
 
         [DllImport("setupapi.dll", SetLastError = true)]
         public static extern IntPtr SetupDiGetClassDevs(ref Guid classGuid, IntPtr enumerator, IntPtr hwndParent, uint flags);

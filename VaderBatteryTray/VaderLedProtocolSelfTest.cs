@@ -12,6 +12,10 @@ namespace VaderLedProtocolSelfTest
             TestSettingsResolution();
             TestNativeLowBatteryAlertPolicy();
             TestDockEstimatedScale();
+            TestBatterySourcePrecedence();
+            TestSharedBatteryDisplayScale();
+            TestDockToWirelessContinuity();
+            TestFullToWirelessContinuity();
             TestDockFullTransitions();
             TestDockRuntimeRestore();
             Console.WriteLine("Vader LED protocol self-test passed.");
@@ -93,6 +97,122 @@ namespace VaderLedProtocolSelfTest
             }
         }
 
+        private static void TestSharedBatteryDisplayScale()
+        {
+            int[] expected = new int[] { 10, 25, 40, 55, 70, 85, 100 };
+            for (int ordinal = 0; ordinal < expected.Length; ordinal++)
+            {
+                AssertEqual(
+                    expected[ordinal],
+                    VaderBatteryTray.BatteryDisplayScale.PercentFromOrdinal(ordinal),
+                    "shared display scale ordinal " + ordinal.ToString());
+                AssertEqual(
+                    ordinal,
+                    VaderBatteryTray.BatteryDisplayScale.OrdinalFromPercent(expected[ordinal]),
+                    "shared display scale reverse ordinal " + ordinal.ToString());
+            }
+
+            AssertEqual(
+                -1,
+                VaderBatteryTray.BatteryDisplayScale.PercentFromOrdinal(-1),
+                "negative display ordinal unavailable");
+            AssertEqual(
+                -1,
+                VaderBatteryTray.BatteryDisplayScale.PercentFromOrdinal(7),
+                "oversized display ordinal unavailable");
+        }
+
+        private static void TestBatterySourcePrecedence()
+        {
+            AssertBoolean(
+                true,
+                VaderBatteryTray.BatterySourcePolicy.ShouldPreferDock(
+                    true,
+                    true,
+                    true),
+                "active Dock overrides live controller");
+            AssertBoolean(
+                false,
+                VaderBatteryTray.BatterySourcePolicy.ShouldPreferDock(
+                    true,
+                    false,
+                    true),
+                "inactive retained Dock Full does not override live controller");
+            AssertBoolean(
+                true,
+                VaderBatteryTray.BatterySourcePolicy.ShouldPreferDock(
+                    true,
+                    false,
+                    false),
+                "inactive Dock Full is valid without a live controller");
+            AssertBoolean(
+                false,
+                VaderBatteryTray.BatterySourcePolicy.ShouldPreferDock(
+                    false,
+                    true,
+                    false),
+                "unavailable Dock never wins");
+        }
+
+        private static void TestDockToWirelessContinuity()
+        {
+            DateTime now = new DateTime(2026, 7, 26, 12, 0, 0, DateTimeKind.Utc);
+            MemoryBatteryPresentationStateStore store =
+                new MemoryBatteryPresentationStateStore();
+            VaderBatteryTray.BatteryPresentationContinuity continuity =
+                new VaderBatteryTray.BatteryPresentationContinuity(store);
+
+            AssertEqual(85, continuity.ObserveDockPercent(85, now), "Dock anchor 85");
+            AssertEqual(
+                85,
+                continuity.ObserveWirelessDischarging(4, 70, now.AddSeconds(1)),
+                "first Wireless sample preserves Dock 85");
+            AssertEqual(
+                85,
+                continuity.ObserveWirelessDischarging(4, 70, now.AddMinutes(1)),
+                "unchanged Wireless raw level preserves 85");
+            AssertEqual(
+                70,
+                continuity.ObserveWirelessDischarging(3, 55, now.AddMinutes(2)),
+                "next Wireless raw step advances to 70");
+
+            VaderBatteryTray.BatteryPresentationContinuity restored =
+                new VaderBatteryTray.BatteryPresentationContinuity(store);
+            AssertEqual(
+                70,
+                restored.ObserveWirelessDischarging(3, 55, now.AddMinutes(3)),
+                "continuity survives process restart");
+        }
+
+        private static void TestFullToWirelessContinuity()
+        {
+            DateTime now = new DateTime(2026, 7, 26, 14, 0, 0, DateTimeKind.Utc);
+            MemoryBatteryPresentationStateStore store =
+                new MemoryBatteryPresentationStateStore();
+            VaderBatteryTray.BatteryPresentationContinuity continuity =
+                new VaderBatteryTray.BatteryPresentationContinuity(store);
+
+            AssertEqual(100, continuity.ObserveDockPercent(100, now), "Full anchor");
+            AssertEqual(
+                100,
+                continuity.ObserveWirelessDischarging(4, 70, now.AddSeconds(1)),
+                "first Wireless sample retains Full");
+            AssertEqual(
+                100,
+                continuity.ObserveWirelessDischarging(4, 70, now.AddMinutes(1)),
+                "Full remains while raw level is unchanged");
+            AssertEqual(
+                85,
+                continuity.ObserveWirelessDischarging(3, 55, now.AddMinutes(2)),
+                "first raw level change leaves Full at 85");
+
+            continuity.ObserveContradictingAvailableState();
+            AssertEqual(
+                55,
+                continuity.ObserveWirelessDischarging(3, 55, now.AddMinutes(3)),
+                "contradicting state clears continuity");
+        }
+
         private static void TestDockFullTransitions()
         {
             DateTime now = new DateTime(2026, 7, 25, 18, 0, 0, DateTimeKind.Utc);
@@ -165,6 +285,23 @@ namespace VaderLedProtocolSelfTest
             }
 
             public void Save(VaderBatteryTray.DockRuntimeState state)
+            {
+                State = state;
+            }
+        }
+
+        private sealed class MemoryBatteryPresentationStateStore :
+            VaderBatteryTray.IBatteryPresentationStateStore
+        {
+            public VaderBatteryTray.BatteryPresentationState State =
+                new VaderBatteryTray.BatteryPresentationState();
+
+            public VaderBatteryTray.BatteryPresentationState Load()
+            {
+                return State;
+            }
+
+            public void Save(VaderBatteryTray.BatteryPresentationState state)
             {
                 State = state;
             }

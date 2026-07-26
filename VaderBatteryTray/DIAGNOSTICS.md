@@ -43,10 +43,24 @@ Flydigi V2 GET_INFO
 
 The battery byte contains a status nibble and level nibble:
 
-- status `0`: discharging; levels are displayed in 20-point steps;
-- status `1`: charging; levels represent qualitative physical bands;
+- status `0`: discharging; the low nibble is presented on the controller's own
+  ordered display scale;
+- status `1`: charging; Dock EF remains the preferred source when available;
 - status `2`: charged;
 - other values: unknown and retained for diagnostics.
+
+An awake controller can continue to report `status=0` and
+`connection=Wireless` while physically seated and charging in Dock 2. When a
+simultaneous present, active Dock EF report is available, Dock EF has
+presentation precedence; both raw observations remain in the diagnostic log.
+That precedence is limited to a fresh EF snapshot. Once the Dock becomes quiet
+after removal, its retained Full transition cannot continue to claim
+`Dock / Charged`.
+
+Some Dock reads actively repeat inactive `00 06 01` after removal. Therefore
+inactive Full is authoritative only without a live controller session. With a
+live controller, it cannot override `Wireless / Discharging`; active charging
+EF reports still retain priority.
 
 ## Dock EF source
 
@@ -69,9 +83,10 @@ Active Dock EF states use this approximate display scale:
 | `0x05` | ~70% | High / blue |
 | `0x06` | ~85% | High / blue |
 
-The percentages provide consistent tray and Rainmeter fill steps; they are not
-measurements. Active `0x06` remains Charging because physical observation
-showed the controller LEDs breathing blue.
+The percentages provide Dock fill steps; they are not measurements. Active
+`0x06` remains Charging because physical observation showed the controller LEDs
+breathing blue. Controller and Dock display values are not carried across a
+source transition because their raw ordinal systems differ.
 
 `RawDockFlag` is an activity indicator, not physical Dock presence.
 `RawDockPresenceFlag` records the following field: it was `1` for the observed
@@ -88,11 +103,13 @@ Each entry contains tab-separated fields:
 - `Transport`
 - `DataSource`
 - `Percent`
+- `PercentEstimated`
 - `BandLevel`
 - `HasBattery`
 - `HasBatteryBand`
 - `PowerState`
 - `RawGetInfoStatusNibble`
+- `RawGetInfoLevelNibble`
 - `RawDockFlag`
 - `RawDockState`
 - `RawDockPresenceFlag`
@@ -126,8 +143,8 @@ failures never interrupt monitoring.
 
 ## Known limitations
 
-- GET_INFO and Dock EF use different representations. Dock percentages are a
-  display interpolation, not measurements.
+- GET_INFO and Dock EF use different representations. Displayed percentages
+  are source-specific presentation values, not measurements.
 - GET_INFO transport remains `Unknown` until independently verified.
 - Diagnostic `PowerState` may remain `Unknown` where semantics are unproven.
 - Immediately after removal the Dock can briefly retain its preceding state;

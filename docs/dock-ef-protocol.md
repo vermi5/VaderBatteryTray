@@ -21,6 +21,12 @@ The percentages are evenly spaced presentation values chosen to preserve room
 between the final active charging step and confirmed Full. Colors are derived
 from the observed physical bands, not from generic percentage thresholds.
 
+The controller `GET_INFO` level is normalized through the same ordered scale.
+At a Dock-to-Wireless transition, the last Dock ordinal is used as an anchor:
+the first Wireless reading keeps the same displayed percentage, and later raw
+level changes move by the same number of scale positions. This avoids implying
+that unrelated raw ordinals from the two report families are directly equal.
+
 ## EF packet fields
 
 An observed report has this form:
@@ -78,3 +84,13 @@ HKCU\Software\VaderBatteryTray\RuntimeState
 The cache records raw state, last active state, timestamps, and whether Full was
 confirmed. It expires after 12 hours and is never allowed to override a new
 active EF report. Registry read or write failures do not affect monitoring.
+
+Display continuity is stored separately under:
+
+```text
+HKCU\Software\VaderBatteryTray\PresentationState
+```
+
+This 12-hour anchor contains only an ordinal, the first Wireless raw level, and
+a timestamp. Confirmed Full therefore remains `100%` after removal while the
+raw Wireless level is unchanged; the first decrement advances to `85%`.

@@ -38,13 +38,15 @@ namespace VaderBatteryTray
         {
             StringBuilder json = new StringBuilder();
             json.Append("{");
-            AppendNumber(json, "schemaVersion", 2, false);
+            AppendNumber(json, "schemaVersion", 3, false);
             AppendString(json, "controller", "Flydigi Vader 5 Pro", true);
 
             if (snapshot == null)
             {
                 AppendString(json, "status", "starting", true);
                 AppendBoolean(json, "connected", false, true);
+                AppendBoolean(json, "controllerPresent", false, true);
+                AppendBoolean(json, "dockPresent", false, true);
                 AppendBoolean(json, "batteryAvailable", false, true);
                 AppendNull(json, "percent", true);
                 AppendBoolean(json, "estimated", false, true);
@@ -64,7 +66,11 @@ namespace VaderBatteryTray
 
             string status = snapshot.HasBattery || snapshot.HasBatteryBand
                 ? "ok"
-                : (snapshot.InterfacePresent ? "unavailable" : "disconnected");
+                : (!snapshot.ControllerInterfacePresent && snapshot.DockInterfacePresent
+                    ? "controller-unavailable"
+                    : (!snapshot.ControllerInterfacePresent && !snapshot.DockInterfacePresent
+                        ? "receiver-disconnected"
+                        : "unavailable"));
             DateTime observedUtc = snapshot.UtcObservationTimestamp;
             string observedText = observedUtc == DateTime.MinValue
                 ? null
@@ -75,6 +81,8 @@ namespace VaderBatteryTray
 
             AppendString(json, "status", status, true);
             AppendBoolean(json, "connected", snapshot.InterfacePresent, true);
+            AppendBoolean(json, "controllerPresent", snapshot.ControllerInterfacePresent, true);
+            AppendBoolean(json, "dockPresent", snapshot.DockInterfacePresent, true);
             AppendBoolean(json, "batteryAvailable", snapshot.HasBattery || snapshot.HasBatteryBand, true);
             if (snapshot.Percent >= 0)
             {
@@ -87,7 +95,7 @@ namespace VaderBatteryTray
             AppendBoolean(
                 json,
                 "estimated",
-                snapshot.HasBatteryBand && !snapshot.HasBattery && snapshot.Percent >= 0,
+                snapshot.PercentEstimated && snapshot.Percent >= 0,
                 true);
             AppendNumber(json, "bandLevel", snapshot.BandLevel, true);
             AppendString(json, "band", EmptyToNull(snapshot.BandText), true);

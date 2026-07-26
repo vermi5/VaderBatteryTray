@@ -32,13 +32,15 @@ Example exact-battery response:
 
 ```json
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "controller": "Flydigi Vader 5 Pro",
   "status": "ok",
   "connected": true,
+  "controllerPresent": true,
+  "dockPresent": true,
   "batteryAvailable": true,
-  "percent": 80,
-  "estimated": false,
+  "percent": 85,
+  "estimated": true,
   "bandLevel": 3,
   "band": "High",
   "charging": false,
@@ -52,8 +54,10 @@ Example exact-battery response:
 }
 ```
 
-For an active Dock 2 reading, `percent` is one of `10`, `25`, `40`, `55`,
-`70`, or `85`, `estimated` is `true`, and `source` is `DockEfBand`.
+Controller and Dock 2 values use their own raw scales. `percent` is a
+source-specific presentation step: it must not be used to infer the physical
+band or colour across a source transition. Active Dock values are estimated;
+confirmed Full uses `100`.
 Confirmed Full uses `percent: 100`, `estimated: false`, `bandLevel: 4`, and
 `band: "Full"`.
 
@@ -61,8 +65,11 @@ Possible `status` values:
 
 - `starting`: no refresh has completed yet.
 - `ok`: an exact percentage or qualitative battery band is available.
-- `unavailable`: a compatible interface exists, but battery data is unavailable.
-- `disconnected`: no compatible interface was found.
+- `unavailable`: controller interfaces exist, but a current battery reply is unavailable.
+- `controller-unavailable`: the receiver/dock is present but the controller HID
+  interfaces are absent (the controller is asleep, turned off, or out of range).
+- `receiver-disconnected`: neither the controller nor the Dock 2 receiver HID
+  interfaces are present.
 
 Raw HID reports, device paths, and other diagnostic-only data are intentionally
 not exposed.
@@ -77,7 +84,7 @@ The bundled controller skin uses the command endpoint only when the user
 explicitly clicks refresh or middle-clicks the skin. No device configuration,
 lighting, mapping, or firmware command is exposed.
 
-The `estimated` field identifies approximate Dock values without adding a
-potentially ambiguous prefix to the displayed percentage. Its fill width and
-both color indicators use the same normalized percentage and physical band as
-the tray icon.
+The `estimated` field identifies Dock presentation steps without adding a
+potentially ambiguous prefix. The bundled skin uses `bandLevel` for color, not
+the display percentage, so a displayed value from one source is never used to
+colour the other source.
