@@ -22,6 +22,10 @@
   `PresentationState` registry subkey.
 - Expose the raw `GET_INFO` level nibble and normalized-percentage flag in
   diagnostics, while keeping tray, icon fill, local API, and Rainmeter aligned.
+- Keep the tray context menu responsive while controller, Dock, or lighting HID
+  operations are waiting for reports by running refresh work off the UI thread.
+- Coalesce overlapping refresh requests and serialize HID access so timer,
+  device-change, diagnostics, and lighting operations cannot race each other.
 
 ## 1.1.13 - 2026-07-25
 
