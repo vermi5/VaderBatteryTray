@@ -15,6 +15,8 @@
   the evidence that follows charge completion.
 - Align the Rainmeter percentage, fill width, text color, and bar color with
   the tray presentation.
+- Display estimated Dock percentages without the visually ambiguous `~`
+  prefix; approximation remains explicit in diagnostics and the local API.
 
 ## 1.1.12 - 2026-07-25
 

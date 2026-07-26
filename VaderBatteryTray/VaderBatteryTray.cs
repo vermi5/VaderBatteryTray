@@ -315,7 +315,9 @@ namespace VaderBatteryTray
                 }
                 else if (snapshot.HasBatteryBand)
                 {
-                    string batteryText = snapshot.Percent >= 0 ? "~" + snapshot.Percent.ToString() + "%" : snapshot.BandText;
+                    string batteryText = snapshot.Percent >= 0
+                        ? snapshot.Percent.ToString() + "%"
+                        : snapshot.BandText;
                     string tooltip = "Vader 5 Pro | " + batteryText + " | " + snapshot.PowerText + " | " + snapshot.ConnectionText;
                     string menuText = "Vader 5 Pro: " + batteryText + " - " + snapshot.PowerText + " - " + snapshot.ConnectionText;
                     statusMenuItem.Text = LimitText(menuText, 120);
