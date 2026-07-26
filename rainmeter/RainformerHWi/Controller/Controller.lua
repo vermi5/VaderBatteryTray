@@ -107,9 +107,31 @@ function Update()
 
     if status == 'disconnected' then
         applyDisplay(
-            'NOT CONNECTED',
+            'RECEIVER DISCONNECTED',
             '--',
-            'Vader 5 Pro',
+            'Reconnect receiver',
+            '',
+            0,
+            colorVariable('colorInactiveButton', 'colorInactiveButtonAlpha'))
+        return currentLevel
+    end
+
+    if status == 'receiver-disconnected' then
+        applyDisplay(
+            'RECEIVER DISCONNECTED',
+            '--',
+            'Reconnect receiver',
+            '',
+            0,
+            colorVariable('colorInactiveButton', 'colorInactiveButtonAlpha'))
+        return currentLevel
+    end
+
+    if status == 'controller-unavailable' then
+        applyDisplay(
+            'CONTROLLER ASLEEP / OFF',
+            '--',
+            'Wake with Home',
             '',
             0,
             colorVariable('colorInactiveButton', 'colorInactiveButtonAlpha'))

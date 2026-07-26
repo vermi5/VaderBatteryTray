@@ -21,6 +21,7 @@ echo Building VaderBatteryTray.exe...
   /reference:System.Drawing.dll ^
   /reference:System.Windows.Forms.dll ^
   "%CD%\VaderBatteryTray.cs" ^
+  "%CD%\BatteryPresentationPolicy.cs" ^
   "%CD%\DockBatteryPolicy.cs" ^
   "%CD%\VaderLedProtocol.cs" ^
   "%CD%\VaderLedPolicy.cs" ^

@@ -1,5 +1,28 @@
 # Changelog
 
+## 1.1.14 - 2026-07-26
+
+- Normalize controller `GET_INFO` levels and Dock EF states onto the shared
+  presentation scale `10`, `25`, `40`, `55`, `70`, `85`, and `100%`.
+- Preserve the last valid Dock step across the Dock-to-Wireless transition, so
+  `85% Dock Charging` becomes `85% Wireless Discharging` without a cosmetic
+  jump caused by different raw protocol ordinals.
+- Prefer a valid present Dock EF charging report over a simultaneous
+  `GET_INFO` reply that still labels an awake docked controller as Wireless and
+  Discharging.
+- Expire retained Dock snapshots before source arbitration, preventing a quiet
+  Dock's last Full report from labeling an undocked live controller as
+  `Dock / Charged`.
+- Treat an inactive retained Dock Full report as authoritative only when no
+  live controller session exists; active Dock charging still takes precedence.
+- Preserve confirmed Full as `100% Wireless Discharging` while the raw
+  `GET_INFO` level is unchanged; subsequent changes advance through the same
+  shared scale.
+- Persist the short-lived presentation anchor separately under the per-user
+  `PresentationState` registry subkey.
+- Expose the raw `GET_INFO` level nibble and normalized-percentage flag in
+  diagnostics, while keeping tray, icon fill, local API, and Rainmeter aligned.
+
 ## 1.1.13 - 2026-07-25
 
 - Preserve the controller firmware's native red low-battery pulse by avoiding

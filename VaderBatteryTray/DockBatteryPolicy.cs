@@ -306,23 +306,7 @@ namespace VaderBatteryTray
 
         internal static int EstimatedPercent(int rawState)
         {
-            switch (rawState)
-            {
-                case 0x01:
-                    return 10;
-                case 0x02:
-                    return 25;
-                case 0x03:
-                    return 40;
-                case 0x04:
-                    return 55;
-                case 0x05:
-                    return 70;
-                case 0x06:
-                    return 85;
-                default:
-                    return -1;
-            }
+            return BatteryDisplayScale.PercentFromDockState(rawState);
         }
 
         internal static int BandLevel(int rawState)
