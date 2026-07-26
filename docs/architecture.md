@@ -44,6 +44,12 @@ Dock precedence is freshness-bounded. After three seconds without a fresh EF
 observation it cannot override a live controller session's connection and
 power state.
 
+Controller and Dock polling runs on one serialized background worker. Timer,
+device-change, local endpoint, and manual refresh requests are coalesced while
+a read is already in progress. Completed snapshots return to the UI timer for
+tray icon and menu updates, so HID report timeouts do not block the Windows
+message loop or delay opening the context menu.
+
 Additionally, an inactive Full EF report never overrides a simultaneous live
 controller session, because the empty Dock has been observed to repeat retained
 `00 06 01` on a new read. Active charging EF remains authoritative; inactive

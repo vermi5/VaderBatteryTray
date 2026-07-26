@@ -94,6 +94,8 @@ namespace VaderBatteryTray
         private readonly SharedBatteryState sharedState;
         private readonly RainmeterBridge rainmeterBridge;
         private readonly HidDeviceChangeWindow deviceChangeWindow;
+        private readonly object refreshCompletionLock = new object();
+        private readonly object hidOperationLock = new object();
 
         private Icon currentIcon;
         private int lastPercent = -2;
@@ -103,6 +105,11 @@ namespace VaderBatteryTray
         private bool lastConnected;
         private BatterySnapshot lastSnapshot;
         private int refreshRequested;
+        private int refreshInProgress;
+        private int refreshCompleted;
+        private int exiting;
+        private BatterySnapshot completedSnapshot;
+        private Exception completedRefreshError;
         private bool controllerUnavailableSeen;
         private bool wakeReadingDeferred;
 
@@ -122,7 +129,7 @@ namespace VaderBatteryTray
             statusMenuItem.Enabled = false;
 
             ToolStripMenuItem refreshItem = new ToolStripMenuItem("Refresh now");
-            refreshItem.Click += delegate { RefreshStatus(); };
+            refreshItem.Click += delegate { RequestRefresh(); };
 
             ToolStripMenuItem diagnosticsItem = new ToolStripMenuItem("Copy diagnostics");
             diagnosticsItem.Click += delegate { CopyDiagnostics(); };
@@ -166,13 +173,14 @@ namespace VaderBatteryTray
 
             refreshTimer = new System.Windows.Forms.Timer();
             refreshTimer.Interval = RefreshIntervalMs;
-            refreshTimer.Tick += delegate { RefreshStatus(); };
+            refreshTimer.Tick += delegate { RequestRefresh(); };
             refreshTimer.Start();
 
             commandTimer = new System.Windows.Forms.Timer();
             commandTimer.Interval = 250;
             commandTimer.Tick += delegate
             {
+                CompleteRefresh();
                 if (Interlocked.Exchange(ref refreshRequested, 0) != 0)
                 {
                     RefreshStatus();
@@ -185,7 +193,7 @@ namespace VaderBatteryTray
             wakeRefreshTimer.Tick += delegate
             {
                 wakeRefreshTimer.Stop();
-                RefreshStatus();
+                RequestRefresh();
             };
 
             RefreshStatus();
@@ -280,7 +288,10 @@ namespace VaderBatteryTray
                 {
                     if (lastSnapshot != null)
                     {
-                        ledController.PreviewBrightness(lastSnapshot, value);
+                        lock (hidOperationLock)
+                        {
+                            ledController.PreviewBrightness(lastSnapshot, value);
+                        }
                     }
                 }))
             {
@@ -319,7 +330,10 @@ namespace VaderBatteryTray
         {
             if (lastSnapshot != null)
             {
-                ledController.ApplySnapshot(lastSnapshot);
+                lock (hidOperationLock)
+                {
+                    ledController.ApplySnapshot(lastSnapshot);
+                }
             }
         }
 
@@ -350,62 +364,125 @@ namespace VaderBatteryTray
 
         private void RefreshStatus()
         {
-            try
+            if (Interlocked.CompareExchange(ref refreshInProgress, 1, 0) != 0)
             {
-                BatterySnapshot snapshot = reader.ReadBattery();
-                if (ShouldDeferWakeReading(snapshot))
-                {
-                    return;
-                }
-                lastSnapshot = snapshot;
-                sharedState.Publish(snapshot);
-                ledController.ApplySnapshot(snapshot);
-
-                if (snapshot.HasBattery)
-                {
-                    string tooltip = "Vader 5 Pro | " + snapshot.Percent.ToString() + "% | " + snapshot.PowerText + " | " + snapshot.ConnectionText;
-                    string menuText = "Vader 5 Pro: " + snapshot.Percent.ToString() + "% - " + snapshot.PowerText + " - " + snapshot.ConnectionText;
-                    statusMenuItem.Text = LimitText(menuText, 120);
-                    SetTrayVisual(snapshot.Percent, snapshot.BandLevel, snapshot.IsCharging, true, LimitText(tooltip, 63));
-                }
-                else if (snapshot.HasBatteryBand)
-                {
-                    string batteryText = snapshot.Percent >= 0
-                        ? snapshot.Percent.ToString() + "%"
-                        : snapshot.BandText;
-                    string tooltip = "Vader 5 Pro | " + batteryText + " | " + snapshot.PowerText + " | " + snapshot.ConnectionText;
-                    string menuText = "Vader 5 Pro: " + batteryText + " - " + snapshot.PowerText + " - " + snapshot.ConnectionText;
-                    statusMenuItem.Text = LimitText(menuText, 120);
-                    SetTrayVisual(snapshot.Percent >= 0 ? snapshot.Percent : -1, snapshot.BandLevel, snapshot.IsCharging, true, LimitText(tooltip, 63));
-                }
-                else if (!snapshot.ControllerInterfacePresent && snapshot.DockInterfacePresent)
-                {
-                    statusMenuItem.Text = "Vader 5 Pro: controller asleep or turned off";
-                    string tooltip = "Vader 5 Pro | Controller asleep or off";
-                    SetTrayVisual(-1, 0, snapshot.IsCharging, true, LimitText(tooltip, 63));
-                }
-                else if (!snapshot.ControllerInterfacePresent && !snapshot.DockInterfacePresent)
-                {
-                    statusMenuItem.Text = "Vader 5 Pro: receiver disconnected";
-                    SetTrayVisual(-1, 0, false, false, "Vader 5 Pro | Receiver disconnected");
-                }
-                else if (snapshot.InterfacePresent)
-                {
-                    statusMenuItem.Text = LimitText("Vader 5 Pro: controller waking or unavailable - " + snapshot.Error, 120);
-                    SetTrayVisual(-1, 0, snapshot.IsCharging, true, "Vader 5 Pro | Controller unavailable");
-                }
-                else
-                {
-                    statusMenuItem.Text = "Vader 5 Pro: HID interface not found";
-                    SetTrayVisual(-1, 0, false, false, "Vader 5 Pro | Not connected");
-                }
+                RequestRefresh();
+                return;
             }
-            catch (Exception ex)
+
+            ThreadPool.QueueUserWorkItem(
+                delegate
+                {
+                    BatterySnapshot snapshot = null;
+                    Exception error = null;
+                    try
+                    {
+                        lock (hidOperationLock)
+                        {
+                            snapshot = reader.ReadBattery();
+                            ledController.ApplySnapshot(snapshot);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        error = ex;
+                    }
+
+                    lock (refreshCompletionLock)
+                    {
+                        completedSnapshot = snapshot;
+                        completedRefreshError = error;
+                    }
+                    Interlocked.Exchange(ref refreshCompleted, 1);
+                });
+        }
+
+        private void CompleteRefresh()
+        {
+            if (Interlocked.Exchange(ref refreshCompleted, 0) == 0)
             {
-                lastSnapshot = BatterySnapshot.Unavailable("Reader error: " + ex.Message, false);
+                return;
+            }
+
+            BatterySnapshot snapshot;
+            Exception error;
+            lock (refreshCompletionLock)
+            {
+                snapshot = completedSnapshot;
+                error = completedRefreshError;
+                completedSnapshot = null;
+                completedRefreshError = null;
+            }
+            Interlocked.Exchange(ref refreshInProgress, 0);
+
+            if (Interlocked.CompareExchange(ref exiting, 0, 0) != 0)
+            {
+                return;
+            }
+
+            if (error != null)
+            {
+                lastSnapshot = BatterySnapshot.Unavailable("Reader error: " + error.Message, false);
                 sharedState.Publish(lastSnapshot);
-                statusMenuItem.Text = LimitText("HID reader error: " + ex.Message, 120);
+                statusMenuItem.Text = LimitText("HID reader error: " + error.Message, 120);
                 SetTrayVisual(-1, 0, false, false, "Vader 5 Pro | Battery unavailable");
+                return;
+            }
+
+            if (snapshot == null)
+            {
+                lastSnapshot = BatterySnapshot.Unavailable("Reader error: no battery snapshot returned", false);
+                sharedState.Publish(lastSnapshot);
+                statusMenuItem.Text = "HID reader error: no battery snapshot returned";
+                SetTrayVisual(-1, 0, false, false, "Vader 5 Pro | Battery unavailable");
+                return;
+            }
+
+            if (ShouldDeferWakeReading(snapshot))
+            {
+                return;
+            }
+
+            lastSnapshot = snapshot;
+            sharedState.Publish(snapshot);
+
+            if (snapshot.HasBattery)
+            {
+                string tooltip = "Vader 5 Pro | " + snapshot.Percent.ToString() + "% | " + snapshot.PowerText + " | " + snapshot.ConnectionText;
+                string menuText = "Vader 5 Pro: " + snapshot.Percent.ToString() + "% - " + snapshot.PowerText + " - " + snapshot.ConnectionText;
+                statusMenuItem.Text = LimitText(menuText, 120);
+                SetTrayVisual(snapshot.Percent, snapshot.BandLevel, snapshot.IsCharging, true, LimitText(tooltip, 63));
+            }
+            else if (snapshot.HasBatteryBand)
+            {
+                string batteryText = snapshot.Percent >= 0
+                    ? snapshot.Percent.ToString() + "%"
+                    : snapshot.BandText;
+                string tooltip = "Vader 5 Pro | " + batteryText + " | " + snapshot.PowerText + " | " + snapshot.ConnectionText;
+                string menuText = "Vader 5 Pro: " + batteryText + " - " + snapshot.PowerText + " - " + snapshot.ConnectionText;
+                statusMenuItem.Text = LimitText(menuText, 120);
+                SetTrayVisual(snapshot.Percent >= 0 ? snapshot.Percent : -1, snapshot.BandLevel, snapshot.IsCharging, true, LimitText(tooltip, 63));
+            }
+            else if (!snapshot.ControllerInterfacePresent && snapshot.DockInterfacePresent)
+            {
+                statusMenuItem.Text = "Vader 5 Pro: controller asleep or turned off";
+                string tooltip = "Vader 5 Pro | Controller asleep or off";
+                SetTrayVisual(-1, 0, snapshot.IsCharging, true, LimitText(tooltip, 63));
+            }
+            else if (!snapshot.ControllerInterfacePresent && !snapshot.DockInterfacePresent)
+            {
+                statusMenuItem.Text = "Vader 5 Pro: receiver disconnected";
+                SetTrayVisual(-1, 0, false, false, "Vader 5 Pro | Receiver disconnected");
+            }
+            else if (snapshot.InterfacePresent)
+            {
+                statusMenuItem.Text = LimitText("Vader 5 Pro: controller waking or unavailable - " + snapshot.Error, 120);
+                SetTrayVisual(-1, 0, snapshot.IsCharging, true, "Vader 5 Pro | Controller unavailable");
+            }
+            else
+            {
+                statusMenuItem.Text = "Vader 5 Pro: HID interface not found";
+                SetTrayVisual(-1, 0, false, false, "Vader 5 Pro | Not connected");
             }
         }
 
@@ -432,7 +509,11 @@ namespace VaderBatteryTray
                 text.AppendLine("Generic XInput battery values are not used.");
                 text.AppendLine();
 
-                BatterySnapshot snapshot = reader.ReadBattery();
+                BatterySnapshot snapshot;
+                lock (hidOperationLock)
+                {
+                    snapshot = reader.ReadBattery();
+                }
                 lastSnapshot = snapshot;
                 sharedState.Publish(snapshot);
                 text.AppendLine("Last query:");
@@ -511,6 +592,8 @@ namespace VaderBatteryTray
 
         protected override void ExitThreadCore()
         {
+            Interlocked.Exchange(ref exiting, 1);
+
             if (refreshTimer != null)
             {
                 refreshTimer.Stop();
@@ -534,7 +617,8 @@ namespace VaderBatteryTray
                 rainmeterBridge.Dispose();
             }
 
-            if (reader != null)
+            if (reader != null &&
+                Interlocked.CompareExchange(ref refreshInProgress, 0, 0) == 0)
             {
                 reader.Dispose();
             }
