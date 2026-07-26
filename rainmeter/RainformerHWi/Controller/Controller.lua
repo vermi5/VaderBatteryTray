@@ -130,7 +130,7 @@ function Update()
     local batteryText
     local level
     if percent ~= nil then
-        batteryText = (estimated and '~' or '') .. tostring(percent) .. '%'
+        batteryText = tostring(percent) .. '%'
         level = math.max(0, math.min(100, percent))
     else
         batteryText = string.upper(band or 'UNKNOWN')

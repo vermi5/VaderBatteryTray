@@ -77,6 +77,7 @@ The bundled controller skin uses the command endpoint only when the user
 explicitly clicks refresh or middle-clicks the skin. No device configuration,
 lighting, mapping, or firmware command is exposed.
 
-The skin shows approximate Dock values with a `~` prefix. Its fill width and
+The `estimated` field identifies approximate Dock values without adding a
+potentially ambiguous prefix to the displayed percentage. Its fill width and
 both color indicators use the same normalized percentage and physical band as
 the tray icon.
