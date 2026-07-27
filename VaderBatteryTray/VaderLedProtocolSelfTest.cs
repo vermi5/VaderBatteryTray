@@ -272,17 +272,20 @@ namespace VaderLedProtocolSelfTest
             store.State.LastField9 = 1;
             store.State.LastActiveState = 0x06;
             store.State.LastActiveUtc = now.AddMinutes(-10);
+            store.State.FullConfirmed = true;
+            store.State.FullConfirmedUtc = now.AddMinutes(-10);
 
             VaderBatteryTray.DockBatteryStateTracker tracker =
                 new VaderBatteryTray.DockBatteryStateTracker(store);
             VaderBatteryTray.DockBatteryDecision restored =
                 tracker.Process(0, 0x06, 1, now);
-            AssertBoolean(false, restored.Available, "persisted state alone does not restore Full");
-            AssertBoolean(false, store.State.FullConfirmed, "ambiguous persisted Full is cleared");
+            AssertBoolean(true, restored.Available, "recent confirmed Full restores after restart");
+            AssertBoolean(true, restored.IsFull, "restored state is Full");
+            AssertEqual(100, restored.Percent, "restored Full percent");
 
             VaderBatteryTray.DockBatteryDecision expired =
                 tracker.Process(0, 0x06, 0, now.AddHours(13));
-            AssertBoolean(false, expired.Available, "field-9-cleared state invalidates persisted Full");
+            AssertBoolean(false, expired.Available, "expired persisted Full becomes unavailable");
 
             VaderBatteryTray.DockBatteryDecision contradiction =
                 tracker.Process(1, 0x03, 1, now.AddHours(13).AddSeconds(1));

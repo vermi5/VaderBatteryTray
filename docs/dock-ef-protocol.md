@@ -118,9 +118,10 @@ HKCU\Software\VaderBatteryTray\RuntimeState
 ```
 
 The cache records raw state, last active state, timestamps, and historical Full
-context. It expires after 12 hours and is never allowed to override a new active
-EF report or independently restore Full. Registry read or write failures do not
-affect monitoring.
+context. It expires after 12 hours and may restore a previously confirmed Full
+when the Dock still reports inactive `0x06`; it never overrides a new active EF
+report or live controller data. Registry read or write failures do not affect
+monitoring.
 
 Display continuity is stored separately under:
 

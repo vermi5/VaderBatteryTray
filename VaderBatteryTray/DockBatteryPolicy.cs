@@ -286,7 +286,14 @@ namespace VaderBatteryTray
                 state.FullConfirmed &&
                 IsRecent(state.FullConfirmedUtc, now, RuntimeCacheLifetime);
 
-            if (completedHighCharge || retainedSessionFull)
+            bool restoredRecentFull =
+                rawState == 0x06 &&
+                state.FullConfirmed &&
+                IsRecent(state.FullConfirmedUtc, now, RuntimeCacheLifetime);
+
+            if (completedHighCharge ||
+                retainedSessionFull ||
+                restoredRecentFull)
             {
                 state.FullConfirmed = true;
                 if (completedHighCharge)
@@ -303,7 +310,9 @@ namespace VaderBatteryTray
                     BandLevel = 4,
                     Reason = completedHighCharge
                         ? "active 0x06 transitioned to inactive 0x06"
-                        : "retained Full confirmed in the current Dock session"
+                        : (retainedSessionFull
+                            ? "retained Full confirmed in the current Dock session"
+                            : "restored recent confirmed Full")
                 };
             }
 
