@@ -145,7 +145,14 @@ HKCU\Software\VaderBatteryTray\RuntimeState
 
 It expires after 12 hours and cannot independently restore Full. Full requires
 a confirmed active `0x06` followed by inactive `0x06` during the current
-monitoring session. Registry failures never interrupt monitoring.
+monitoring session. Repeated inactive `0x06` reports retain that confirmation
+until a live or active state contradicts it. Registry failures never interrupt
+monitoring.
+
+Because the Dock emits the same inactive `0x06` report after an off controller
+is removed, retained Full is historical rather than proof of current physical
+presence. A live `GET_INFO` reply takes precedence and uses the confirmed Full
+as its presentation anchor.
 
 ## Known limitations
 

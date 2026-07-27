@@ -8,6 +8,9 @@
   stability, suppressing the observed one-second `0x01` insertion transient.
 - Infer Dock Full only from a confirmed active `0x06` followed by inactive
   `0x06`; retained inactive reports remain ambiguous.
+- Retain Full across subsequent inactive `0x06` reports from the same observed
+  charging session, and apply the existing presentation anchor when the
+  controller next appears as Wireless.
 - Normalize controller `GET_INFO` levels and Dock EF states onto the shared
   presentation scale `10`, `25`, `40`, `55`, `70`, `85`, and `100%`.
 - Preserve the last valid Dock step across the Dock-to-Wireless transition, so

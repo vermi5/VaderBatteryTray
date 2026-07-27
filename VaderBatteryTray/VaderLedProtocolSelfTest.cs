@@ -248,6 +248,12 @@ namespace VaderLedProtocolSelfTest
             AssertEqual(100, full.Percent, "Full percent");
             AssertEqual(4, full.BandLevel, "Full band");
 
+            VaderBatteryTray.DockBatteryDecision retainedFull =
+                tracker.Process(0, 0x06, 1, now.AddSeconds(2));
+            AssertBoolean(true, retainedFull.Available, "repeated inactive 0x06 remains available");
+            AssertBoolean(true, retainedFull.IsFull, "repeated inactive 0x06 retains Full");
+            AssertEqual(100, retainedFull.Percent, "retained Full percent");
+
             VaderBatteryTray.DockBatteryStateTracker redockTracker =
                 new VaderBatteryTray.DockBatteryStateTracker(null);
             redockTracker.Process(1, 0x01, 1, now.AddSeconds(2));

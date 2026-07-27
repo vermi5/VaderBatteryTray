@@ -91,6 +91,7 @@ namespace VaderBatteryTray
         private readonly System.Windows.Forms.Timer wakeRefreshTimer;
         private readonly HidBatteryReader reader;
         private readonly VaderLedController ledController;
+        private readonly BatteryPresentationContinuity presentationContinuity;
         private readonly SharedBatteryState sharedState;
         private readonly RainmeterBridge rainmeterBridge;
         private readonly HidDeviceChangeWindow deviceChangeWindow;
@@ -117,6 +118,8 @@ namespace VaderBatteryTray
         {
             reader = new HidBatteryReader(RequestRefresh);
             ledController = new VaderLedController();
+            presentationContinuity = new BatteryPresentationContinuity(
+                new BatteryPresentationRegistryStateStore());
             sharedState = new SharedBatteryState();
             rainmeterBridge = new RainmeterBridge(sharedState, RequestRefresh);
             rainmeterBridge.Start();
@@ -380,6 +383,7 @@ namespace VaderBatteryTray
                         lock (hidOperationLock)
                         {
                             snapshot = reader.ReadBattery();
+                            ApplyPresentationContinuity(snapshot);
                             ledController.ApplySnapshot(snapshot);
                         }
                     }
@@ -483,6 +487,81 @@ namespace VaderBatteryTray
             {
                 statusMenuItem.Text = "Vader 5 Pro: HID interface not found";
                 SetTrayVisual(-1, 0, false, false, "Vader 5 Pro | Not connected");
+            }
+        }
+
+        private void ApplyPresentationContinuity(BatterySnapshot snapshot)
+        {
+            if (snapshot == null)
+            {
+                return;
+            }
+
+            if (snapshot.DataSource == BatteryDataSource.DockEfBand &&
+                (snapshot.HasBattery || snapshot.HasBatteryBand) &&
+                snapshot.Percent >= 0)
+            {
+                snapshot.Percent = presentationContinuity.ObserveDockPercent(
+                    snapshot.Percent,
+                    snapshot.UtcObservationTimestamp);
+                return;
+            }
+
+            if (snapshot.DataSource == BatteryDataSource.GetInfo &&
+                snapshot.HasLiveControllerSession &&
+                snapshot.PowerState == BatteryPowerState.Discharging &&
+                snapshot.RawGetInfoLevelNibble.HasValue &&
+                snapshot.Percent >= 0)
+            {
+                snapshot.Percent =
+                    presentationContinuity.ObserveWirelessDischarging(
+                        snapshot.RawGetInfoLevelNibble.Value,
+                        snapshot.Percent,
+                        snapshot.UtcObservationTimestamp);
+                snapshot.PercentEstimated = true;
+                snapshot.BandLevel = PresentationBandFromPercent(snapshot.Percent);
+                snapshot.BandText = PresentationBandText(snapshot.BandLevel);
+                return;
+            }
+
+            if ((snapshot.HasBattery || snapshot.HasBatteryBand) &&
+                snapshot.PowerState != BatteryPowerState.Unknown)
+            {
+                presentationContinuity.ObserveContradictingAvailableState();
+            }
+        }
+
+        private static int PresentationBandFromPercent(int percent)
+        {
+            if (percent >= 100)
+            {
+                return 4;
+            }
+            if (percent >= 70)
+            {
+                return 3;
+            }
+            if (percent >= 40)
+            {
+                return 2;
+            }
+            return percent >= 0 ? 1 : 0;
+        }
+
+        private static string PresentationBandText(int bandLevel)
+        {
+            switch (bandLevel)
+            {
+                case 1:
+                    return "Low";
+                case 2:
+                    return "Medium";
+                case 3:
+                    return "High";
+                case 4:
+                    return "Full";
+                default:
+                    return String.Empty;
             }
         }
 

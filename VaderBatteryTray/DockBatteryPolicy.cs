@@ -280,10 +280,19 @@ namespace VaderBatteryTray
                 state.LastActiveState == 0x06 &&
                 IsRecent(state.LastActiveUtc, now, RuntimeCacheLifetime);
 
-            if (completedHighCharge)
+            bool retainedSessionFull =
+                rawState == 0x06 &&
+                hasConfirmedActiveThisSession &&
+                state.FullConfirmed &&
+                IsRecent(state.FullConfirmedUtc, now, RuntimeCacheLifetime);
+
+            if (completedHighCharge || retainedSessionFull)
             {
                 state.FullConfirmed = true;
-                state.FullConfirmedUtc = now;
+                if (completedHighCharge)
+                {
+                    state.FullConfirmedUtc = now;
+                }
                 Save();
                 return new DockBatteryDecision
                 {
@@ -292,7 +301,9 @@ namespace VaderBatteryTray
                     IsFull = true,
                     Percent = 100,
                     BandLevel = 4,
-                    Reason = "active 0x06 transitioned to inactive 0x06"
+                    Reason = completedHighCharge
+                        ? "active 0x06 transitioned to inactive 0x06"
+                        : "retained Full confirmed in the current Dock session"
                 };
             }
 

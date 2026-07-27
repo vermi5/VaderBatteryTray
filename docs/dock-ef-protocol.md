@@ -96,8 +96,10 @@ Full. An isolated inactive report is ambiguous because the Dock may retain its
 last state after removal.
 
 After removal, the Dock can retain the previous inactive state and `field9`.
-Inactive retained reports therefore remain unavailable unless accompanied by
-the observed active-to-inactive `0x06` completion transition.
+Inactive retained reports therefore remain unavailable unless the current
+monitoring session first observed the active-to-inactive `0x06` completion
+transition. Once confirmed, repeated `00/06` reports retain historical Full;
+they do not prove that the controller remains physically present.
 
 ## Active-state stability
 
