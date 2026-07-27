@@ -2,6 +2,12 @@
 
 ## 1.1.14 - 2026-07-26
 
+- Treat Dock EF `data[9]` as an unknown diagnostic field instead of physical
+  controller presence.
+- Confirm a changed active Dock band with a repeated report or 1.5 seconds of
+  stability, suppressing the observed one-second `0x01` insertion transient.
+- Infer Dock Full only from a confirmed active `0x06` followed by inactive
+  `0x06`; retained inactive reports remain ambiguous.
 - Normalize controller `GET_INFO` levels and Dock EF states onto the shared
   presentation scale `10`, `25`, `40`, `55`, `70`, `85`, and `100%`.
 - Preserve the last valid Dock step across the Dock-to-Wireless transition, so

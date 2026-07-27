@@ -93,6 +93,11 @@ source transition because their raw ordinal systems differ.
 capture kept it at `1` while docked, asleep, charging, and after removal. Inactive
 packets are logged as well as active packets.
 
+A changed active Dock level is not published until it repeats or remains
+unchanged for 1.5 seconds. While confirmation is pending, the last confirmed
+active level is retained when available. This suppresses the observed
+approximately one-second `0x01` insertion transient.
+
 ## Diagnostic fields
 
 Each entry contains tab-separated fields:
@@ -132,14 +137,15 @@ The signature includes raw flag, raw state, percentage, band, and availability.
 Transitions such as `01 06` to `00 06` therefore remain visible while
 identical reports are suppressed.
 
-Recent raw and confirmed-Full context is stored under:
+Recent raw context is stored under:
 
 ```text
 HKCU\Software\VaderBatteryTray\RuntimeState
 ```
 
-It expires after 12 hours and cannot override a new active EF report. Registry
-failures never interrupt monitoring.
+It expires after 12 hours and cannot independently restore Full. Full requires
+a confirmed active `0x06` followed by inactive `0x06` during the current
+monitoring session. Registry failures never interrupt monitoring.
 
 ## Known limitations
 

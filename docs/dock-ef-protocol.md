@@ -99,6 +99,14 @@ After removal, the Dock can retain the previous inactive state and `field9`.
 Inactive retained reports therefore remain unavailable unless accompanied by
 the observed active-to-inactive `0x06` completion transition.
 
+## Active-state stability
+
+A newly changed active state must be observed twice or remain unchanged for
+1.5 seconds before it replaces the published band. While it is pending, the
+last confirmed active band is retained when available. This filters the
+controlled insertion sequence in which `0x01` lasted about 0.99 seconds before
+the Dock returned to the stable `0x04` level.
+
 ## Runtime cache
 
 Transition context is stored separately from user settings under:
@@ -107,9 +115,10 @@ Transition context is stored separately from user settings under:
 HKCU\Software\VaderBatteryTray\RuntimeState
 ```
 
-The cache records raw state, last active state, timestamps, and whether Full was
-confirmed. It expires after 12 hours and is never allowed to override a new
-active EF report. Registry read or write failures do not affect monitoring.
+The cache records raw state, last active state, timestamps, and historical Full
+context. It expires after 12 hours and is never allowed to override a new active
+EF report or independently restore Full. Registry read or write failures do not
+affect monitoring.
 
 Display continuity is stored separately under:
 

@@ -158,7 +158,8 @@ namespace VaderBatteryTray
     {
         internal static readonly TimeSpan RuntimeCacheLifetime = TimeSpan.FromHours(12);
         internal static readonly TimeSpan RuntimePersistHeartbeat = TimeSpan.FromMinutes(5);
-        internal static readonly TimeSpan SettlingWindow = TimeSpan.FromSeconds(15);
+        internal static readonly TimeSpan ActiveStateConfirmationWindow =
+            TimeSpan.FromMilliseconds(1500);
 
         private readonly IDockRuntimeStateStore store;
         private readonly DockRuntimeState state;
@@ -170,6 +171,10 @@ namespace VaderBatteryTray
         private DateTime savedLastActiveUtc;
         private bool savedFullConfirmed;
         private DateTime savedFullConfirmedUtc;
+        private int pendingActiveState = -1;
+        private int pendingActiveCount;
+        private DateTime pendingActiveSinceUtc = DateTime.MinValue;
+        private bool hasConfirmedActiveThisSession;
 
         public DockBatteryStateTracker(IDockRuntimeStateStore store)
         {
@@ -213,73 +218,72 @@ namespace VaderBatteryTray
                     "unknown Dock EF state 0x" + rawState.ToString("X2"));
             }
 
-            if (field9 == 0)
-            {
-                state.FullConfirmed = false;
-                Save();
-                return DockBatteryDecision.Unavailable(
-                    "Dock EF field 9 is cleared");
-            }
-
             if (flag != 0)
             {
-                bool activeStateChanged = state.LastActiveState != rawState;
-                state.LastActiveState = rawState;
-                if (activeStateChanged ||
-                    !IsRecent(state.LastActiveUtc, now, RuntimePersistHeartbeat))
+                if (!hasConfirmedActiveThisSession ||
+                    state.LastActiveState != rawState)
                 {
+                    if (pendingActiveState != rawState)
+                    {
+                        pendingActiveState = rawState;
+                        pendingActiveCount = 1;
+                        pendingActiveSinceUtc = now;
+                    }
+                    else
+                    {
+                        pendingActiveCount++;
+                    }
+
+                    bool confirmed =
+                        pendingActiveCount >= 2 ||
+                        now - pendingActiveSinceUtc >= ActiveStateConfirmationWindow;
+                    if (!confirmed)
+                    {
+                        Save();
+                        if (hasConfirmedActiveThisSession &&
+                            state.LastActiveState >= 0x01 &&
+                            state.LastActiveState <= 0x06 &&
+                            IsRecent(state.LastActiveUtc, now, RuntimeCacheLifetime))
+                        {
+                            return ActiveDecision(
+                                state.LastActiveState,
+                                "retained stable Dock EF step while a new step is pending");
+                        }
+                        return DockBatteryDecision.Unavailable(
+                            "new active Dock EF step is awaiting confirmation");
+                    }
+
+                    state.LastActiveState = rawState;
                     state.LastActiveUtc = now;
+                    hasConfirmedActiveThisSession = true;
+                    ClearPendingActiveState();
+                }
+                else
+                {
+                    ClearPendingActiveState();
+                    if (!IsRecent(state.LastActiveUtc, now, RuntimePersistHeartbeat))
+                    {
+                        state.LastActiveUtc = now;
+                    }
                 }
                 state.FullConfirmed = false;
                 Save();
-
-                return new DockBatteryDecision
-                {
-                    Available = true,
-                    IsCharging = true,
-                    IsFull = false,
-                    Percent = EstimatedPercent(rawState),
-                    BandLevel = BandLevel(rawState),
-                    Reason = "active Dock EF charging step"
-                };
+                return ActiveDecision(rawState, "confirmed active Dock EF step");
             }
 
+            ClearPendingActiveState();
             bool completedHighCharge =
                 rawState == 0x06 &&
+                hasConfirmedActiveThisSession &&
                 previousRawFlag != 0 &&
                 previousRawState == 0x06 &&
                 state.LastActiveState == 0x06 &&
                 IsRecent(state.LastActiveUtc, now, RuntimeCacheLifetime);
 
-            bool restoredRecentFull =
-                rawState == 0x06 &&
-                state.FullConfirmed &&
-                IsRecent(state.FullConfirmedUtc, now, RuntimeCacheLifetime);
-
-            bool presentInactiveFull =
-                rawState == 0x06 &&
-                field9 != 0;
-
-            bool fullRedockSettled =
-                rawState == 0x01 &&
-                previousRawFlag != 0 &&
-                previousRawState == 0x01 &&
-                state.LastActiveState == 0x01 &&
-                IsRecent(state.LastActiveUtc, now, SettlingWindow);
-
-            if (completedHighCharge ||
-                restoredRecentFull ||
-                presentInactiveFull ||
-                fullRedockSettled)
+            if (completedHighCharge)
             {
                 state.FullConfirmed = true;
-                if (completedHighCharge ||
-                    fullRedockSettled ||
-                    (!restoredRecentFull &&
-                     !IsRecent(state.FullConfirmedUtc, now, RuntimeCacheLifetime)))
-                {
-                    state.FullConfirmedUtc = now;
-                }
+                state.FullConfirmedUtc = now;
                 Save();
                 return new DockBatteryDecision
                 {
@@ -288,13 +292,7 @@ namespace VaderBatteryTray
                     IsFull = true,
                     Percent = 100,
                     BandLevel = 4,
-                    Reason = completedHighCharge
-                        ? "active 0x06 transitioned to inactive 0x06"
-                        : (fullRedockSettled
-                            ? "Dock insertion settled without starting a charge band"
-                            : (restoredRecentFull
-                                ? "recent persisted Full matched inactive 0x06"
-                                : "inactive 0x06 retained with field 9 set"))
+                    Reason = "active 0x06 transitioned to inactive 0x06"
                 };
             }
 
@@ -307,6 +305,26 @@ namespace VaderBatteryTray
         internal static int EstimatedPercent(int rawState)
         {
             return BatteryDisplayScale.PercentFromDockState(rawState);
+        }
+
+        private static DockBatteryDecision ActiveDecision(int rawState, string reason)
+        {
+            return new DockBatteryDecision
+            {
+                Available = true,
+                IsCharging = true,
+                IsFull = false,
+                Percent = EstimatedPercent(rawState),
+                BandLevel = BandLevel(rawState),
+                Reason = reason
+            };
+        }
+
+        private void ClearPendingActiveState()
+        {
+            pendingActiveState = -1;
+            pendingActiveCount = 0;
+            pendingActiveSinceUtc = DateTime.MinValue;
         }
 
         internal static int BandLevel(int rawState)
