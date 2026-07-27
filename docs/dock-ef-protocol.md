@@ -52,6 +52,34 @@ An observed report has this form:
   plus one.
 - trailing zeroes pad the HID report.
 
+## Flydigi service evidence
+
+Decompilation of `Flydigi.ChargerSdk.dll` and the managed service bundle
+confirms how Flydigi carries the Dock values through its own application:
+
+- `ChargerProtocol.ParseData` recognizes the `5A A5 EF` frame and forwards the
+  complete Flydigi span to its raw-data listener.
+- `ChargerRepository.OnRawDataReceived` assigns `data[7] == 1` to
+  `Charger.IsControllerConnected` and `data[8]` to
+  `Charger.ControllerBattery`.
+- `ChargerDataMapper` copies those properties unchanged to protobuf fields
+  `ChargerInfo.isControllerConnected` and `ChargerInfo.controllerBattery`.
+- the renderer uses battery levels `1..6` directly to select its six battery
+  assets. It does not convert the value from a percentage.
+
+Those service offsets exclude the HID report ID. In the raw HID report shown
+above they therefore correspond to the activity field and six-step state at
+`offset + 7` and `offset + 8` after the `5A A5` marker. Flydigi's internal
+`IsControllerConnected` name is evidence of its software model, but physical
+captures show that this field can become inactive while the controller remains
+in the Dock. The following field remains the stronger observed
+controller-present/validity signal.
+
+No separate `isCharging`, `chargeState`, or equivalent protobuf field was
+found. Charging and Full in this application remain interpretations of the
+observed EF transitions and physical LED behavior, rather than a distinct
+charging-status value exposed by Flydigi.
+
 ## Full and inactive reports
 
 Physical observation and a passive live capture established:
