@@ -28,7 +28,7 @@ namespace VaderBatteryTray
     {
         public int LastRawFlag = -1;
         public int LastRawState = -1;
-        public int LastPresenceFlag = -1;
+        public int LastField9 = -1;
         public int LastActiveState = -1;
         public DateTime LastActiveUtc = DateTime.MinValue;
         public bool FullConfirmed;
@@ -60,7 +60,7 @@ namespace VaderBatteryTray
 
                     state.LastRawFlag = ReadInt32(key, "LastRawFlag", -1);
                     state.LastRawState = ReadInt32(key, "LastRawState", -1);
-                    state.LastPresenceFlag = ReadInt32(key, "LastPresenceFlag", -1);
+                    state.LastField9 = ReadInt32(key, "LastField9", -1);
                     state.LastActiveState = ReadInt32(key, "LastActiveState", -1);
                     state.LastActiveUtc = ReadUtc(key, "LastActiveUtc");
                     state.FullConfirmed = ReadInt32(key, "FullConfirmed", 0) != 0;
@@ -88,7 +88,7 @@ namespace VaderBatteryTray
                     key.SetValue("SchemaVersion", SchemaVersion, RegistryValueKind.DWord);
                     key.SetValue("LastRawFlag", state.LastRawFlag, RegistryValueKind.DWord);
                     key.SetValue("LastRawState", state.LastRawState, RegistryValueKind.DWord);
-                    key.SetValue("LastPresenceFlag", state.LastPresenceFlag, RegistryValueKind.DWord);
+                    key.SetValue("LastField9", state.LastField9, RegistryValueKind.DWord);
                     key.SetValue("LastActiveState", state.LastActiveState, RegistryValueKind.DWord);
                     WriteUtc(key, "LastActiveUtc", state.LastActiveUtc);
                     key.SetValue("FullConfirmed", state.FullConfirmed ? 1 : 0, RegistryValueKind.DWord);
@@ -165,7 +165,7 @@ namespace VaderBatteryTray
         private readonly object sync = new object();
         private int savedLastRawFlag;
         private int savedLastRawState;
-        private int savedLastPresenceFlag;
+        private int savedLastField9;
         private int savedLastActiveState;
         private DateTime savedLastActiveUtc;
         private bool savedFullConfirmed;
@@ -181,19 +181,19 @@ namespace VaderBatteryTray
         public DockBatteryDecision Process(
             byte flag,
             byte rawState,
-            byte presenceFlag,
+            byte field9,
             DateTime observedUtc)
         {
             lock (sync)
             {
-                return ProcessLocked(flag, rawState, presenceFlag, observedUtc);
+                return ProcessLocked(flag, rawState, field9, observedUtc);
             }
         }
 
         private DockBatteryDecision ProcessLocked(
             byte flag,
             byte rawState,
-            byte presenceFlag,
+            byte field9,
             DateTime observedUtc)
         {
             DateTime now = observedUtc == DateTime.MinValue
@@ -204,7 +204,7 @@ namespace VaderBatteryTray
 
             state.LastRawFlag = flag;
             state.LastRawState = rawState;
-            state.LastPresenceFlag = presenceFlag;
+            state.LastField9 = field9;
 
             if (rawState < 0x01 || rawState > 0x06)
             {
@@ -213,12 +213,12 @@ namespace VaderBatteryTray
                     "unknown Dock EF state 0x" + rawState.ToString("X2"));
             }
 
-            if (presenceFlag == 0)
+            if (field9 == 0)
             {
                 state.FullConfirmed = false;
                 Save();
                 return DockBatteryDecision.Unavailable(
-                    "Dock EF controller-presence field is cleared");
+                    "Dock EF field 9 is cleared");
             }
 
             if (flag != 0)
@@ -258,7 +258,7 @@ namespace VaderBatteryTray
 
             bool presentInactiveFull =
                 rawState == 0x06 &&
-                presenceFlag != 0;
+                field9 != 0;
 
             bool fullRedockSettled =
                 rawState == 0x01 &&
@@ -294,7 +294,7 @@ namespace VaderBatteryTray
                             ? "Dock insertion settled without starting a charge band"
                             : (restoredRecentFull
                                 ? "recent persisted Full matched inactive 0x06"
-                                : "inactive 0x06 retained with controller-present field"))
+                                : "inactive 0x06 retained with field 9 set"))
                 };
             }
 
@@ -344,7 +344,7 @@ namespace VaderBatteryTray
         {
             return savedLastRawFlag != state.LastRawFlag ||
                    savedLastRawState != state.LastRawState ||
-                   savedLastPresenceFlag != state.LastPresenceFlag ||
+                   savedLastField9 != state.LastField9 ||
                    savedLastActiveState != state.LastActiveState ||
                    savedLastActiveUtc != state.LastActiveUtc ||
                    savedFullConfirmed != state.FullConfirmed ||
@@ -355,7 +355,7 @@ namespace VaderBatteryTray
         {
             savedLastRawFlag = state.LastRawFlag;
             savedLastRawState = state.LastRawState;
-            savedLastPresenceFlag = state.LastPresenceFlag;
+            savedLastField9 = state.LastField9;
             savedLastActiveState = state.LastActiveState;
             savedLastActiveUtc = state.LastActiveUtc;
             savedFullConfirmed = state.FullConfirmed;

@@ -89,8 +89,8 @@ breathing blue. Controller and Dock display values are not carried across a
 source transition because their raw ordinal systems differ.
 
 `RawDockFlag` is an activity indicator, not physical Dock presence.
-`RawDockPresenceFlag` records the following field: it was `1` for the observed
-docked charging/full reports and `0` once the empty Dock settled. Inactive
+`RawDockField9` records the following field. Its meaning is unknown: a controlled
+capture kept it at `1` while docked, asleep, charging, and after removal. Inactive
 packets are logged as well as active packets.
 
 ## Diagnostic fields
@@ -112,7 +112,7 @@ Each entry contains tab-separated fields:
 - `RawGetInfoLevelNibble`
 - `RawDockFlag`
 - `RawDockState`
-- `RawDockPresenceFlag`
+- `RawDockField9`
 - `RawGetInfoHex`
 - `RawDockEfHex`
 - `Result`
@@ -148,6 +148,6 @@ failures never interrupt monitoring.
 - GET_INFO transport remains `Unknown` until independently verified.
 - Diagnostic `PowerState` may remain `Unknown` where semantics are unproven.
 - Immediately after removal the Dock can briefly retain its preceding state;
-  the subsequent presence-cleared report invalidates it.
+  no EF field currently proves physical presence.
 - The constant payload fields around opcode `0x39` do not have authoritative
   names.

@@ -540,9 +540,9 @@ namespace VaderBatteryTray
                         ? snapshot.RawGetInfoLevelNibble.Value.ToString()
                         : "(unavailable)"));
                 text.AppendLine("    Raw dock EF report: " + EmptyMarker(snapshot.RawDockReportHex));
-                text.AppendLine("    Raw dock controller-present field: " +
-                    (snapshot.RawDockPresenceFlag.HasValue
-                        ? snapshot.RawDockPresenceFlag.Value.ToString()
+                text.AppendLine("    Raw dock field 9 (unknown): " +
+                    (snapshot.RawDockField9.HasValue
+                        ? snapshot.RawDockField9.Value.ToString()
                         : "(unavailable)"));
                 text.AppendLine("    Error: " + EmptyMarker(snapshot.Error));
                 text.AppendLine();
@@ -780,7 +780,7 @@ namespace VaderBatteryTray
         public byte? RawGetInfoLevelNibble;
         public byte? RawDockFlag;
         public byte? RawDockState;
-        public byte? RawDockPresenceFlag;
+        public byte? RawDockField9;
         // A valid GET_INFO reply was received from the controller in this refresh.
         // Enumeration alone is not enough: an off controller briefly exposes the
         // same HID interfaces while it is docked.
@@ -1302,11 +1302,11 @@ namespace VaderBatteryTray
             byte rawFlag = report[offset + 7];
             int flag = rawFlag;
             int state = report[offset + 8];
-            byte presenceFlag = report[offset + 9];
+            byte field9 = report[offset + 9];
             DockBatteryDecision decision = stateTracker.Process(
                 rawFlag,
                 (byte)state,
-                presenceFlag,
+                field9,
                 observedUtc);
             if (!decision.Available)
             {
@@ -1318,13 +1318,13 @@ namespace VaderBatteryTray
                 inactive.Provenance =
                     "Flydigi Dock 2 EF status opcode 0x39, activity flag " +
                     flag.ToString() + ", state 0x" + state.ToString("X2") +
-                    ", controller-present field " + presenceFlag.ToString();
+                    ", field 9 " + field9.ToString();
                 return ApplyDockDiagnostics(
                     inactive,
                     report,
                     rawFlag,
                     (byte)state,
-                    presenceFlag,
+                    field9,
                     observedUtc);
             }
 
@@ -1343,7 +1343,7 @@ namespace VaderBatteryTray
             snapshot.Provenance =
                 "Flydigi Dock 2 EF status opcode 0x39, activity flag " +
                 flag.ToString() + ", state 0x" + state.ToString("X2") +
-                ", controller-present field " + presenceFlag.ToString() +
+                ", field 9 " + field9.ToString() +
                 (decision.IsFull
                     ? " (Full inferred: " + decision.Reason + ")"
                     : " (estimated display percentage)");
@@ -1352,7 +1352,7 @@ namespace VaderBatteryTray
                 report,
                 rawFlag,
                 (byte)state,
-                presenceFlag,
+                field9,
                 observedUtc);
         }
 
@@ -1361,7 +1361,7 @@ namespace VaderBatteryTray
             byte[] report,
             byte? rawFlag,
             byte? rawState,
-            byte? rawPresenceFlag,
+            byte? rawField9,
             DateTime observedUtc)
         {
             snapshot.Transport = BatteryTransport.Dock;
@@ -1374,7 +1374,7 @@ namespace VaderBatteryTray
             snapshot.RawDockReportHex = Hex(report);
             snapshot.RawDockFlag = rawFlag;
             snapshot.RawDockState = rawState;
-            snapshot.RawDockPresenceFlag = rawPresenceFlag;
+            snapshot.RawDockField9 = rawField9;
             snapshot.UtcObservationTimestamp = observedUtc;
             return snapshot;
         }
@@ -1620,7 +1620,7 @@ namespace VaderBatteryTray
 
                 return previous.RawDockFlag != current.RawDockFlag ||
                     previous.RawDockState != current.RawDockState ||
-                    previous.RawDockPresenceFlag != current.RawDockPresenceFlag ||
+                    previous.RawDockField9 != current.RawDockField9 ||
                     previous.IsCharging != current.IsCharging ||
                     previous.Percent != current.Percent;
             }

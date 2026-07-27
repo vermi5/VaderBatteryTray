@@ -220,7 +220,7 @@ namespace VaderLedProtocolSelfTest
                 new VaderBatteryTray.DockBatteryStateTracker(null);
             VaderBatteryTray.DockBatteryDecision ambiguous =
                 ambiguousTracker.Process(0, 0x06, 0, now);
-            AssertBoolean(false, ambiguous.Available, "presence-cleared inactive 0x06 unavailable");
+            AssertBoolean(false, ambiguous.Available, "field-9-cleared inactive 0x06 unavailable");
 
             VaderBatteryTray.DockBatteryDecision presentFull =
                 ambiguousTracker.Process(0, 0x06, 1, now.AddMilliseconds(500));
@@ -252,7 +252,7 @@ namespace VaderLedProtocolSelfTest
             MemoryDockRuntimeStateStore store = new MemoryDockRuntimeStateStore();
             store.State.LastRawFlag = 1;
             store.State.LastRawState = 0x06;
-            store.State.LastPresenceFlag = 1;
+            store.State.LastField9 = 1;
             store.State.LastActiveState = 0x06;
             store.State.LastActiveUtc = now.AddMinutes(-10);
 
@@ -265,7 +265,7 @@ namespace VaderLedProtocolSelfTest
 
             VaderBatteryTray.DockBatteryDecision expired =
                 tracker.Process(0, 0x06, 0, now.AddHours(13));
-            AssertBoolean(false, expired.Available, "presence-cleared state invalidates persisted Full");
+            AssertBoolean(false, expired.Available, "field-9-cleared state invalidates persisted Full");
 
             VaderBatteryTray.DockBatteryDecision contradiction =
                 tracker.Process(1, 0x03, 1, now.AddHours(13).AddSeconds(1));

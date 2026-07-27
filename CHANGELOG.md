@@ -36,8 +36,8 @@
 - Correct the physical Dock color bands to red for `0x01`-`0x02`, yellow for
   `0x03`-`0x04`, and blue for `0x05`-`0x06`.
 - Stop treating active `0x06` as Full: it is an observed blue charging stage.
-- Infer Full only when the inactive state and observed controller-present field
-  agree, retaining recent context under the per-user `RuntimeState` subkey.
+- Infer Full from the then-observed inactive state and auxiliary field,
+  retaining recent context under the per-user `RuntimeState` subkey.
 - Include inactive `flag=0` EF packets in diagnostics instead of discarding
   the evidence that follows charge completion.
 - Align the Rainmeter percentage, fill width, text color, and bar color with

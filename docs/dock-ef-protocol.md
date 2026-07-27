@@ -45,9 +45,9 @@ An observed report has this form:
   inactive or retaining a previous state. It must not be interpreted as
   physical Dock presence.
 - `state` is the six-step value.
-- the following field is `1` with the controller present in the observed
-  charging/full reports and becomes `0` once the empty Dock settles. It is
-  therefore used as a controller-present/validity field.
+- the following field (`field9`) has unknown meaning. A controlled capture kept
+  it at `1` while inactive, docked, charging, asleep, and after physical
+  removal. It must not be used as physical presence.
 - `checksum` is the low byte of the sum from `5A` through that constant `01`,
   plus one.
 - trailing zeroes pad the HID report.
@@ -72,8 +72,8 @@ above they therefore correspond to the activity field and six-step state at
 `offset + 7` and `offset + 8` after the `5A A5` marker. Flydigi's internal
 `IsControllerConnected` name is evidence of its software model, but physical
 captures show that this field can become inactive while the controller remains
-in the Dock. The following field remains the stronger observed
-controller-present/validity signal.
+in the Dock. It is best treated as an active-session indicator. No EF field
+currently proves physical presence.
 
 No separate `isCharging`, `chargeState`, or equivalent protobuf field was
 found. Charging and Full in this application remain interpretations of the
@@ -90,16 +90,14 @@ Physical observation and a passive live capture established:
 39 00 01 00 32  -> empty Dock after the removal transition settled
 ```
 
-The application therefore does not equate active `0x06` with Full. Inactive
-`0x06` with the controller-present field set confirms Full; an
-active-to-inactive `0x06` transition provides additional context. An insertion
-that settles from active `0x01` to inactive `0x01`, with presence still set and
-without starting a charge band, is also treated as an already-full controller.
+The application therefore does not equate active `0x06` with Full. An
+active-to-inactive `0x06` transition is the strongest observed evidence for
+Full. An isolated inactive report is ambiguous because the Dock may retain its
+last state after removal.
 
-Immediately after removal, the Dock can briefly retain the previous inactive
-state and presence field. Once it settles, the observed empty-Dock report clears
-the presence field and invalidates Full. Inactive reports with the presence
-field cleared remain unavailable.
+After removal, the Dock can retain the previous inactive state and `field9`.
+Inactive retained reports therefore remain unavailable unless accompanied by
+the observed active-to-inactive `0x06` completion transition.
 
 ## Runtime cache
 
