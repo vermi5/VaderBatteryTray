@@ -101,6 +101,10 @@ monitoring session first observed the active-to-inactive `0x06` completion
 transition. Once confirmed, repeated `00/06` reports retain historical Full;
 they do not prove that the controller remains physically present.
 
+If waking a controller after confirmed Full reactivates `01/06`, the
+application treats it as a maintenance/top-off session and retains 100% while
+showing Charging. A subsequent inactive `00/06` returns to Charged.
+
 ## Active-state stability
 
 A newly changed active state must be observed twice or remain unchanged for

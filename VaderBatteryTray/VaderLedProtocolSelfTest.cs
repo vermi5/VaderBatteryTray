@@ -254,6 +254,21 @@ namespace VaderLedProtocolSelfTest
             AssertBoolean(true, retainedFull.IsFull, "repeated inactive 0x06 retains Full");
             AssertEqual(100, retainedFull.Percent, "retained Full percent");
 
+            VaderBatteryTray.DockBatteryDecision topOffPending =
+                tracker.Process(1, 0x06, 1, now.AddSeconds(3));
+            AssertBoolean(true, topOffPending.Available, "confirmed Full remains available during top-off");
+            AssertEqual(100, topOffPending.Percent, "top-off keeps 100 percent");
+            AssertBoolean(true, topOffPending.IsCharging, "top-off reports charging");
+
+            VaderBatteryTray.DockBatteryDecision topOff =
+                tracker.Process(1, 0x06, 1, now.AddSeconds(4));
+            AssertBoolean(true, topOff.Available, "confirmed top-off remains available");
+            AssertEqual(100, topOff.Percent, "confirmed top-off remains at 100");
+
+            VaderBatteryTray.DockBatteryDecision completedAgain =
+                tracker.Process(0, 0x06, 0, now.AddSeconds(5));
+            AssertBoolean(true, completedAgain.IsFull, "top-off completion returns to Full");
+
             VaderBatteryTray.DockBatteryStateTracker redockTracker =
                 new VaderBatteryTray.DockBatteryStateTracker(null);
             redockTracker.Process(1, 0x01, 1, now.AddSeconds(2));

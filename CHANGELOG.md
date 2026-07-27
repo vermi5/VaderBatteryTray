@@ -13,6 +13,9 @@
   controller next appears as Wireless.
 - Restore a recently confirmed Full after restarting the tray when the Dock
   still reports inactive `0x06`; live controller data remains authoritative.
+- Keep a confirmed Full at 100% when waking the dock starts an active `0x06`
+  maintenance/top-off session; present it as Charging until it settles back to
+  Charged instead of dropping cosmetically to 85%.
 - Normalize controller `GET_INFO` levels and Dock EF states onto the shared
   presentation scale `10`, `25`, `40`, `55`, `70`, `85`, and `100%`.
 - Preserve the last valid Dock step across the Dock-to-Wireless transition, so

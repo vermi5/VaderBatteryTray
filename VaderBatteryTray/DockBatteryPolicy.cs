@@ -220,6 +220,11 @@ namespace VaderBatteryTray
 
             if (flag != 0)
             {
+                bool confirmedFullTopOff =
+                    rawState == 0x06 &&
+                    state.FullConfirmed &&
+                    IsRecent(state.FullConfirmedUtc, now, RuntimeCacheLifetime);
+
                 if (!hasConfirmedActiveThisSession ||
                     state.LastActiveState != rawState)
                 {
@@ -240,6 +245,10 @@ namespace VaderBatteryTray
                     if (!confirmed)
                     {
                         Save();
+                        if (confirmedFullTopOff)
+                        {
+                            return FullTopOffDecision();
+                        }
                         if (hasConfirmedActiveThisSession &&
                             state.LastActiveState >= 0x01 &&
                             state.LastActiveState <= 0x06 &&
@@ -266,6 +275,13 @@ namespace VaderBatteryTray
                         state.LastActiveUtc = now;
                     }
                 }
+
+                if (confirmedFullTopOff)
+                {
+                    Save();
+                    return FullTopOffDecision();
+                }
+
                 state.FullConfirmed = false;
                 Save();
                 return ActiveDecision(rawState, "confirmed active Dock EF step");
@@ -337,6 +353,19 @@ namespace VaderBatteryTray
                 Percent = EstimatedPercent(rawState),
                 BandLevel = BandLevel(rawState),
                 Reason = reason
+            };
+        }
+
+        private static DockBatteryDecision FullTopOffDecision()
+        {
+            return new DockBatteryDecision
+            {
+                Available = true,
+                IsCharging = true,
+                IsFull = false,
+                Percent = 100,
+                BandLevel = 4,
+                Reason = "active 0x06 maintenance after confirmed Full"
             };
         }
 
