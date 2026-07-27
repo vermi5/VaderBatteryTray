@@ -115,7 +115,7 @@ namespace VaderBatteryTray
 
         public TrayApplicationContext()
         {
-            reader = new HidBatteryReader();
+            reader = new HidBatteryReader(RequestRefresh);
             ledController = new VaderLedController();
             sharedState = new SharedBatteryState();
             rainmeterBridge = new RainmeterBridge(sharedState, RequestRefresh);
@@ -819,11 +819,13 @@ namespace VaderBatteryTray
         private readonly DockBatteryStateTracker dockStateTracker;
         private readonly DockStatusMonitor dockMonitor;
 
-        public HidBatteryReader()
+        public HidBatteryReader(Action dockSnapshotAvailable)
         {
             dockStateTracker = new DockBatteryStateTracker(
                 new DockRegistryRuntimeStateStore());
-            dockMonitor = new DockStatusMonitor(dockStateTracker);
+            dockMonitor = new DockStatusMonitor(
+                dockStateTracker,
+                dockSnapshotAvailable);
         }
 
         public void Dispose()
@@ -861,10 +863,8 @@ namespace VaderBatteryTray
                 Thread.Sleep(100);
             }
 
-            BatterySnapshot monitorSnapshot = dockMonitor.WaitForSnapshot(2500);
-            BatterySnapshot dock = ReadDockBatteryBand();
             bool controllerPresent = last != null && last.InterfacePresent;
-            bool dockPresent = dock != null && dock.InterfacePresent;
+            BatterySnapshot monitorSnapshot = dockMonitor.WaitForSnapshot(0);
             BatterySnapshot result;
             if (BatterySourcePolicy.ShouldPreferDock(
                 monitorSnapshot.HasBatteryBand,
@@ -872,35 +872,35 @@ namespace VaderBatteryTray
                 last != null && last.HasLiveControllerSession))
             {
                 result = AttachLiveControllerSession(monitorSnapshot, last);
-                return FinalizeInterfacePresence(result, controllerPresent, dockPresent);
+                return FinalizeInterfacePresence(result, controllerPresent, true);
             }
 
-            if (BatterySourcePolicy.ShouldPreferDock(
-                dock.HasBatteryBand,
-                dock.IsCharging,
-                last != null && last.HasLiveControllerSession))
-            {
-                result = AttachLiveControllerSession(dock, last);
-                return FinalizeInterfacePresence(result, controllerPresent, dockPresent);
-            }
+            // A valid GET_INFO reply is enough to publish controller presence
+            // and battery immediately. The Dock monitor will request another
+            // refresh if a later EF report proves that the awake controller is
+            // physically docked and charging.
             if (last != null && (last.HasBattery || last.HasBatteryBand))
             {
-                return FinalizeInterfacePresence(last, controllerPresent, dockPresent);
+                bool dockInterfacePresent = FindDockInterface() != null;
+                return FinalizeInterfacePresence(
+                    last,
+                    controllerPresent,
+                    dockInterfacePresent);
             }
 
-            if (monitorSnapshot != null && monitorSnapshot.Error != null && monitorSnapshot.Error.StartsWith("Dock monitor:", StringComparison.Ordinal))
-            {
-                if (dock != null && !String.IsNullOrEmpty(dock.Error))
-                {
-                    BatterySnapshot combined = BatterySnapshot.Unavailable(monitorSnapshot.Error + "; one-shot fallback: " + dock.Error, true);
-                    combined.RedactedPath = !String.IsNullOrEmpty(dock.RedactedPath) ? dock.RedactedPath : monitorSnapshot.RedactedPath;
-                    return FinalizeInterfacePresence(combined, controllerPresent, dockPresent);
-                }
-                return FinalizeInterfacePresence(monitorSnapshot, controllerPresent, dockPresent);
-            }
-
-            result = dock ?? last ?? BatterySnapshot.Unavailable("GET_INFO reply not received", false);
-            return FinalizeInterfacePresence(result, controllerPresent, dockPresent);
+            // A missing GET_INFO reply is also publishable immediately. Do not
+            // turn controller sleep/off detection into a blocking Dock read:
+            // the background monitor owns EF discovery and will request a new
+            // refresh if a real Dock battery observation arrives.
+            bool dockPresent = FindDockInterface() != null;
+            result = last ??
+                BatterySnapshot.Unavailable(
+                    "GET_INFO reply not received",
+                    controllerPresent);
+            return FinalizeInterfacePresence(
+                result,
+                controllerPresent,
+                dockPresent);
         }
 
         private static BatterySnapshot FinalizeInterfacePresence(
@@ -1429,6 +1429,7 @@ namespace VaderBatteryTray
 
             private readonly object sync = new object();
             private readonly Thread thread;
+            private readonly Action snapshotAvailable;
             private bool disposed;
             private BatterySnapshot lastSnapshot;
             private string lastError =
@@ -1438,9 +1439,12 @@ namespace VaderBatteryTray
             private DateTime lastDockLogUtc = DateTime.MinValue;
             private readonly DockBatteryStateTracker stateTracker;
 
-            public DockStatusMonitor(DockBatteryStateTracker stateTracker)
+            public DockStatusMonitor(
+                DockBatteryStateTracker stateTracker,
+                Action snapshotAvailable)
             {
                 this.stateTracker = stateTracker;
+                this.snapshotAvailable = snapshotAvailable;
                 thread = new Thread(Run);
                 thread.IsBackground = true;
                 thread.Name = "Vader Dock EF monitor";
@@ -1567,10 +1571,21 @@ namespace VaderBatteryTray
                                         snapshot.Provenance +=
                                             " via background dock monitor";
 
+                                        bool notifySnapshotAvailable;
                                         lock (sync)
                                         {
+                                            notifySnapshotAvailable =
+                                                HasMeaningfullyChanged(
+                                                    lastSnapshot,
+                                                    snapshot);
                                             lastSnapshot = snapshot;
                                             lastError = String.Empty;
+                                        }
+
+                                        if (notifySnapshotAvailable &&
+                                            snapshotAvailable != null)
+                                        {
+                                            snapshotAvailable();
                                         }
                                     }
                                     else
@@ -1589,6 +1604,25 @@ namespace VaderBatteryTray
                         SleepInterruptible(2000);
                     }
                 }
+            }
+
+            private static bool HasMeaningfullyChanged(
+                BatterySnapshot previous,
+                BatterySnapshot current)
+            {
+                if (previous == null ||
+                    previous.UtcObservationTimestamp == DateTime.MinValue ||
+                    DateTime.UtcNow - previous.UtcObservationTimestamp >
+                        SnapshotFreshnessLifetime)
+                {
+                    return true;
+                }
+
+                return previous.RawDockFlag != current.RawDockFlag ||
+                    previous.RawDockState != current.RawDockState ||
+                    previous.RawDockPresenceFlag != current.RawDockPresenceFlag ||
+                    previous.IsCharging != current.IsCharging ||
+                    previous.Percent != current.Percent;
             }
 
             private bool ShouldLogDockSnapshot(BatterySnapshot snapshot)

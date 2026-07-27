@@ -117,13 +117,19 @@ namespace VaderBatteryTray
 
         private void ApplySnapshot(BatterySnapshot snapshot, byte brightnessPercent)
         {
-            if (!Enabled || snapshot == null || !snapshot.InterfacePresent)
+            if (!Enabled)
             {
                 return;
             }
 
-            if (IsDockOwned(snapshot) && !snapshot.HasLiveControllerSession)
+            if (snapshot == null ||
+                !snapshot.InterfacePresent ||
+                !snapshot.HasLiveControllerSession)
             {
+                // The controller loses its volatile lighting state while it is
+                // asleep/off. Forget the cached command so the same color and
+                // brightness are sent again after the next valid GET_INFO.
+                lastSignature = null;
                 return;
             }
 
@@ -166,13 +172,6 @@ namespace VaderBatteryTray
             {
                 lastError = ex.GetType().Name + ": " + ex.Message;
             }
-        }
-
-        private static bool IsDockOwned(BatterySnapshot snapshot)
-        {
-            return snapshot.DataSource == BatteryDataSource.DockEfBand ||
-                   snapshot.Transport == BatteryTransport.Dock ||
-                   (snapshot.RawDockFlag.HasValue && snapshot.RawDockFlag.Value != 0);
         }
 
         private static bool TryGetColor(BatterySnapshot snapshot, out byte red, out byte green, out byte blue)
