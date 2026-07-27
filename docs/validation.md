@@ -38,8 +38,9 @@ Diagnostics must include both `RawGetInfoStatusNibble` and
 
 After controller autosleep or manual power-off, verify that the tray and skin
 show `CONTROLLER ASLEEP / OFF` when the Dock 2 receiver remains enumerated but
-the controller HID interfaces do not. Wake with Home and verify that HID arrival
-causes a refresh without waiting for the normal polling interval.
+the controller HID interfaces do not. Wake with Home, or dock the powered-off
+controller, and verify that the resulting HID or Dock activity causes a refresh
+without waiting for the normal polling interval.
 
 Remove the receiver and verify that the tray and skin show receiver
 disconnected only when both controller and Dock 2 HID interfaces are absent.

@@ -64,7 +64,7 @@ namespace VaderBatteryTray
                     Append(line, "RawDockState", snapshot.RawDockState.HasValue
                         ? "0x" + snapshot.RawDockState.Value.ToString("X2", CultureInfo.InvariantCulture)
                         : "-");
-                    Append(line, "RawDockPresenceFlag", FormatNullableByte(snapshot.RawDockPresenceFlag));
+                    Append(line, "RawDockField9", FormatNullableByte(snapshot.RawDockField9));
                     Append(line, "RawGetInfoHex", Clean(snapshot.RawReplyHex));
                     Append(line, "RawDockEfHex", Clean(snapshot.RawDockReportHex));
                     Append(line, "Result", Clean(result));

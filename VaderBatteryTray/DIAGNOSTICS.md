@@ -89,9 +89,14 @@ breathing blue. Controller and Dock display values are not carried across a
 source transition because their raw ordinal systems differ.
 
 `RawDockFlag` is an activity indicator, not physical Dock presence.
-`RawDockPresenceFlag` records the following field: it was `1` for the observed
-docked charging/full reports and `0` once the empty Dock settled. Inactive
+`RawDockField9` records the following field. Its meaning is unknown: a controlled
+capture kept it at `1` while docked, asleep, charging, and after removal. Inactive
 packets are logged as well as active packets.
+
+A changed active Dock level is not published until it repeats or remains
+unchanged for 1.5 seconds. While confirmation is pending, the last confirmed
+active level is retained when available. This suppresses the observed
+approximately one-second `0x01` insertion transient.
 
 ## Diagnostic fields
 
@@ -112,7 +117,7 @@ Each entry contains tab-separated fields:
 - `RawGetInfoLevelNibble`
 - `RawDockFlag`
 - `RawDockState`
-- `RawDockPresenceFlag`
+- `RawDockField9`
 - `RawGetInfoHex`
 - `RawDockEfHex`
 - `Result`
@@ -132,14 +137,22 @@ The signature includes raw flag, raw state, percentage, band, and availability.
 Transitions such as `01 06` to `00 06` therefore remain visible while
 identical reports are suppressed.
 
-Recent raw and confirmed-Full context is stored under:
+Recent raw context is stored under:
 
 ```text
 HKCU\Software\VaderBatteryTray\RuntimeState
 ```
 
-It expires after 12 hours and cannot override a new active EF report. Registry
-failures never interrupt monitoring.
+It expires after 12 hours. Full first requires a confirmed active `0x06`
+followed by inactive `0x06`; that confirmation can then be restored after a
+tray restart while the Dock continues to report inactive `0x06`. Repeated
+inactive reports retain it until a live or active state contradicts it.
+Registry failures never interrupt monitoring.
+
+Because the Dock emits the same inactive `0x06` report after an off controller
+is removed, retained Full is historical rather than proof of current physical
+presence. A live `GET_INFO` reply takes precedence and uses the confirmed Full
+as its presentation anchor.
 
 ## Known limitations
 
@@ -148,6 +161,6 @@ failures never interrupt monitoring.
 - GET_INFO transport remains `Unknown` until independently verified.
 - Diagnostic `PowerState` may remain `Unknown` where semantics are unproven.
 - Immediately after removal the Dock can briefly retain its preceding state;
-  the subsequent presence-cleared report invalidates it.
+  no EF field currently proves physical presence.
 - The constant payload fields around opcode `0x39` do not have authoritative
   names.

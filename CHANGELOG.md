@@ -2,6 +2,20 @@
 
 ## 1.1.14 - 2026-07-26
 
+- Treat Dock EF `data[9]` as an unknown diagnostic field instead of physical
+  controller presence.
+- Confirm a changed active Dock band with a repeated report or 1.5 seconds of
+  stability, suppressing the observed one-second `0x01` insertion transient.
+- Infer Dock Full only from a confirmed active `0x06` followed by inactive
+  `0x06`; retained inactive reports remain ambiguous.
+- Retain Full across subsequent inactive `0x06` reports from the same observed
+  charging session, and apply the existing presentation anchor when the
+  controller next appears as Wireless.
+- Restore a recently confirmed Full after restarting the tray when the Dock
+  still reports inactive `0x06`; live controller data remains authoritative.
+- Keep a confirmed Full at 100% when waking the dock starts an active `0x06`
+  maintenance/top-off session; present it as Charging until it settles back to
+  Charged instead of dropping cosmetically to 85%.
 - Normalize controller `GET_INFO` levels and Dock EF states onto the shared
   presentation scale `10`, `25`, `40`, `55`, `70`, `85`, and `100%`.
 - Preserve the last valid Dock step across the Dock-to-Wireless transition, so
@@ -36,8 +50,8 @@
 - Correct the physical Dock color bands to red for `0x01`-`0x02`, yellow for
   `0x03`-`0x04`, and blue for `0x05`-`0x06`.
 - Stop treating active `0x06` as Full: it is an observed blue charging stage.
-- Infer Full only when the inactive state and observed controller-present field
-  agree, retaining recent context under the per-user `RuntimeState` subkey.
+- Infer Full from the then-observed inactive state and auxiliary field,
+  retaining recent context under the per-user `RuntimeState` subkey.
 - Include inactive `flag=0` EF packets in diagnostics instead of discarding
   the evidence that follows charge completion.
 - Align the Rainmeter percentage, fill width, text color, and bar color with

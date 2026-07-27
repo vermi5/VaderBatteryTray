@@ -18,6 +18,7 @@ namespace VaderLedProtocolSelfTest
             TestFullToWirelessContinuity();
             TestDockFullTransitions();
             TestDockRuntimeRestore();
+            TestDockTransientStateFiltering();
             Console.WriteLine("Vader LED protocol self-test passed.");
         }
 
@@ -87,8 +88,17 @@ namespace VaderLedProtocolSelfTest
 
             for (int state = 1; state <= 6; state++)
             {
+                tracker.Process(
+                    1,
+                    (byte)state,
+                    1,
+                    now.AddSeconds(state * 2));
                 VaderBatteryTray.DockBatteryDecision decision =
-                    tracker.Process(1, (byte)state, 1, now.AddSeconds(state));
+                    tracker.Process(
+                        1,
+                        (byte)state,
+                        1,
+                        now.AddSeconds((state * 2) + 1));
                 AssertBoolean(true, decision.Available, "Dock state available " + state.ToString());
                 AssertBoolean(true, decision.IsCharging, "Dock state charging " + state.ToString());
                 AssertBoolean(false, decision.IsFull, "Dock state not Full " + state.ToString());
@@ -220,15 +230,16 @@ namespace VaderLedProtocolSelfTest
                 new VaderBatteryTray.DockBatteryStateTracker(null);
             VaderBatteryTray.DockBatteryDecision ambiguous =
                 ambiguousTracker.Process(0, 0x06, 0, now);
-            AssertBoolean(false, ambiguous.Available, "presence-cleared inactive 0x06 unavailable");
+            AssertBoolean(false, ambiguous.Available, "field-9-cleared inactive 0x06 unavailable");
 
             VaderBatteryTray.DockBatteryDecision presentFull =
                 ambiguousTracker.Process(0, 0x06, 1, now.AddMilliseconds(500));
-            AssertBoolean(true, presentFull.IsFull, "present inactive 0x06 is Full");
+            AssertBoolean(false, presentFull.Available, "field 9 does not make inactive 0x06 available");
 
             VaderBatteryTray.DockBatteryStateTracker tracker =
                 new VaderBatteryTray.DockBatteryStateTracker(null);
             tracker.Process(1, 0x06, 1, now);
+            tracker.Process(1, 0x06, 1, now.AddMilliseconds(500));
             VaderBatteryTray.DockBatteryDecision full =
                 tracker.Process(0, 0x06, 1, now.AddSeconds(1));
             AssertBoolean(true, full.Available, "active-to-inactive 0x06 available");
@@ -237,13 +248,34 @@ namespace VaderLedProtocolSelfTest
             AssertEqual(100, full.Percent, "Full percent");
             AssertEqual(4, full.BandLevel, "Full band");
 
+            VaderBatteryTray.DockBatteryDecision retainedFull =
+                tracker.Process(0, 0x06, 1, now.AddSeconds(2));
+            AssertBoolean(true, retainedFull.Available, "repeated inactive 0x06 remains available");
+            AssertBoolean(true, retainedFull.IsFull, "repeated inactive 0x06 retains Full");
+            AssertEqual(100, retainedFull.Percent, "retained Full percent");
+
+            VaderBatteryTray.DockBatteryDecision topOffPending =
+                tracker.Process(1, 0x06, 1, now.AddSeconds(3));
+            AssertBoolean(true, topOffPending.Available, "confirmed Full remains available during top-off");
+            AssertEqual(100, topOffPending.Percent, "top-off keeps 100 percent");
+            AssertBoolean(true, topOffPending.IsCharging, "top-off reports charging");
+
+            VaderBatteryTray.DockBatteryDecision topOff =
+                tracker.Process(1, 0x06, 1, now.AddSeconds(4));
+            AssertBoolean(true, topOff.Available, "confirmed top-off remains available");
+            AssertEqual(100, topOff.Percent, "confirmed top-off remains at 100");
+
+            VaderBatteryTray.DockBatteryDecision completedAgain =
+                tracker.Process(0, 0x06, 0, now.AddSeconds(5));
+            AssertBoolean(true, completedAgain.IsFull, "top-off completion returns to Full");
+
             VaderBatteryTray.DockBatteryStateTracker redockTracker =
                 new VaderBatteryTray.DockBatteryStateTracker(null);
             redockTracker.Process(1, 0x01, 1, now.AddSeconds(2));
             redockTracker.Process(1, 0x01, 1, now.AddSeconds(3));
             VaderBatteryTray.DockBatteryDecision redockedFull =
                 redockTracker.Process(0, 0x01, 1, now.AddSeconds(4));
-            AssertBoolean(true, redockedFull.IsFull, "insertion without charging settles as Full");
+            AssertBoolean(false, redockedFull.Available, "inactive 0x01 remains ambiguous");
         }
 
         private static void TestDockRuntimeRestore()
@@ -252,26 +284,53 @@ namespace VaderLedProtocolSelfTest
             MemoryDockRuntimeStateStore store = new MemoryDockRuntimeStateStore();
             store.State.LastRawFlag = 1;
             store.State.LastRawState = 0x06;
-            store.State.LastPresenceFlag = 1;
+            store.State.LastField9 = 1;
             store.State.LastActiveState = 0x06;
             store.State.LastActiveUtc = now.AddMinutes(-10);
+            store.State.FullConfirmed = true;
+            store.State.FullConfirmedUtc = now.AddMinutes(-10);
 
             VaderBatteryTray.DockBatteryStateTracker tracker =
                 new VaderBatteryTray.DockBatteryStateTracker(store);
             VaderBatteryTray.DockBatteryDecision restored =
                 tracker.Process(0, 0x06, 1, now);
-            AssertBoolean(true, restored.IsFull, "recent persisted active 0x06 restores Full");
-            AssertBoolean(true, store.State.FullConfirmed, "restored Full persisted");
+            AssertBoolean(true, restored.Available, "recent confirmed Full restores after restart");
+            AssertBoolean(true, restored.IsFull, "restored state is Full");
+            AssertEqual(100, restored.Percent, "restored Full percent");
 
             VaderBatteryTray.DockBatteryDecision expired =
                 tracker.Process(0, 0x06, 0, now.AddHours(13));
-            AssertBoolean(false, expired.Available, "presence-cleared state invalidates persisted Full");
+            AssertBoolean(false, expired.Available, "expired persisted Full becomes unavailable");
 
             VaderBatteryTray.DockBatteryDecision contradiction =
                 tracker.Process(1, 0x03, 1, now.AddHours(13).AddSeconds(1));
             AssertBoolean(false, contradiction.IsFull, "active state invalidates restored Full");
-            AssertEqual(40, contradiction.Percent, "contradicting active state wins");
+            AssertBoolean(false, contradiction.Available, "new active state awaits confirmation");
             AssertBoolean(false, store.State.FullConfirmed, "contradiction clears persisted Full");
+        }
+
+        private static void TestDockTransientStateFiltering()
+        {
+            DateTime now = new DateTime(2026, 7, 27, 10, 37, 49, DateTimeKind.Utc);
+            VaderBatteryTray.DockBatteryStateTracker tracker =
+                new VaderBatteryTray.DockBatteryStateTracker(null);
+
+            VaderBatteryTray.DockBatteryDecision transient =
+                tracker.Process(1, 0x01, 1, now);
+            AssertBoolean(false, transient.Available, "isolated active 0x01 is not published");
+
+            VaderBatteryTray.DockBatteryDecision replacement =
+                tracker.Process(1, 0x04, 1, now.AddMilliseconds(990));
+            AssertBoolean(false, replacement.Available, "replacement 0x04 also awaits confirmation");
+
+            VaderBatteryTray.DockBatteryDecision stable =
+                tracker.Process(1, 0x04, 1, now.AddMilliseconds(1100));
+            AssertBoolean(true, stable.Available, "repeated 0x04 is published");
+            AssertEqual(55, stable.Percent, "stable 0x04 display value");
+
+            VaderBatteryTray.DockBatteryDecision field9Changed =
+                tracker.Process(1, 0x04, 0, now.AddMilliseconds(1200));
+            AssertBoolean(true, field9Changed.Available, "field 9 does not control availability");
         }
 
         private sealed class MemoryDockRuntimeStateStore : VaderBatteryTray.IDockRuntimeStateStore

@@ -28,7 +28,7 @@ namespace VaderBatteryTray
     {
         public int LastRawFlag = -1;
         public int LastRawState = -1;
-        public int LastPresenceFlag = -1;
+        public int LastField9 = -1;
         public int LastActiveState = -1;
         public DateTime LastActiveUtc = DateTime.MinValue;
         public bool FullConfirmed;
@@ -60,7 +60,7 @@ namespace VaderBatteryTray
 
                     state.LastRawFlag = ReadInt32(key, "LastRawFlag", -1);
                     state.LastRawState = ReadInt32(key, "LastRawState", -1);
-                    state.LastPresenceFlag = ReadInt32(key, "LastPresenceFlag", -1);
+                    state.LastField9 = ReadInt32(key, "LastField9", -1);
                     state.LastActiveState = ReadInt32(key, "LastActiveState", -1);
                     state.LastActiveUtc = ReadUtc(key, "LastActiveUtc");
                     state.FullConfirmed = ReadInt32(key, "FullConfirmed", 0) != 0;
@@ -88,7 +88,7 @@ namespace VaderBatteryTray
                     key.SetValue("SchemaVersion", SchemaVersion, RegistryValueKind.DWord);
                     key.SetValue("LastRawFlag", state.LastRawFlag, RegistryValueKind.DWord);
                     key.SetValue("LastRawState", state.LastRawState, RegistryValueKind.DWord);
-                    key.SetValue("LastPresenceFlag", state.LastPresenceFlag, RegistryValueKind.DWord);
+                    key.SetValue("LastField9", state.LastField9, RegistryValueKind.DWord);
                     key.SetValue("LastActiveState", state.LastActiveState, RegistryValueKind.DWord);
                     WriteUtc(key, "LastActiveUtc", state.LastActiveUtc);
                     key.SetValue("FullConfirmed", state.FullConfirmed ? 1 : 0, RegistryValueKind.DWord);
@@ -158,18 +158,23 @@ namespace VaderBatteryTray
     {
         internal static readonly TimeSpan RuntimeCacheLifetime = TimeSpan.FromHours(12);
         internal static readonly TimeSpan RuntimePersistHeartbeat = TimeSpan.FromMinutes(5);
-        internal static readonly TimeSpan SettlingWindow = TimeSpan.FromSeconds(15);
+        internal static readonly TimeSpan ActiveStateConfirmationWindow =
+            TimeSpan.FromMilliseconds(1500);
 
         private readonly IDockRuntimeStateStore store;
         private readonly DockRuntimeState state;
         private readonly object sync = new object();
         private int savedLastRawFlag;
         private int savedLastRawState;
-        private int savedLastPresenceFlag;
+        private int savedLastField9;
         private int savedLastActiveState;
         private DateTime savedLastActiveUtc;
         private bool savedFullConfirmed;
         private DateTime savedFullConfirmedUtc;
+        private int pendingActiveState = -1;
+        private int pendingActiveCount;
+        private DateTime pendingActiveSinceUtc = DateTime.MinValue;
+        private bool hasConfirmedActiveThisSession;
 
         public DockBatteryStateTracker(IDockRuntimeStateStore store)
         {
@@ -181,19 +186,19 @@ namespace VaderBatteryTray
         public DockBatteryDecision Process(
             byte flag,
             byte rawState,
-            byte presenceFlag,
+            byte field9,
             DateTime observedUtc)
         {
             lock (sync)
             {
-                return ProcessLocked(flag, rawState, presenceFlag, observedUtc);
+                return ProcessLocked(flag, rawState, field9, observedUtc);
             }
         }
 
         private DockBatteryDecision ProcessLocked(
             byte flag,
             byte rawState,
-            byte presenceFlag,
+            byte field9,
             DateTime observedUtc)
         {
             DateTime now = observedUtc == DateTime.MinValue
@@ -204,7 +209,7 @@ namespace VaderBatteryTray
 
             state.LastRawFlag = flag;
             state.LastRawState = rawState;
-            state.LastPresenceFlag = presenceFlag;
+            state.LastField9 = field9;
 
             if (rawState < 0x01 || rawState > 0x06)
             {
@@ -213,70 +218,101 @@ namespace VaderBatteryTray
                     "unknown Dock EF state 0x" + rawState.ToString("X2"));
             }
 
-            if (presenceFlag == 0)
-            {
-                state.FullConfirmed = false;
-                Save();
-                return DockBatteryDecision.Unavailable(
-                    "Dock EF controller-presence field is cleared");
-            }
-
             if (flag != 0)
             {
-                bool activeStateChanged = state.LastActiveState != rawState;
-                state.LastActiveState = rawState;
-                if (activeStateChanged ||
-                    !IsRecent(state.LastActiveUtc, now, RuntimePersistHeartbeat))
+                bool confirmedFullTopOff =
+                    rawState == 0x06 &&
+                    state.FullConfirmed &&
+                    IsRecent(state.FullConfirmedUtc, now, RuntimeCacheLifetime);
+
+                if (!hasConfirmedActiveThisSession ||
+                    state.LastActiveState != rawState)
                 {
+                    if (pendingActiveState != rawState)
+                    {
+                        pendingActiveState = rawState;
+                        pendingActiveCount = 1;
+                        pendingActiveSinceUtc = now;
+                    }
+                    else
+                    {
+                        pendingActiveCount++;
+                    }
+
+                    bool confirmed =
+                        pendingActiveCount >= 2 ||
+                        now - pendingActiveSinceUtc >= ActiveStateConfirmationWindow;
+                    if (!confirmed)
+                    {
+                        Save();
+                        if (confirmedFullTopOff)
+                        {
+                            return FullTopOffDecision();
+                        }
+                        if (hasConfirmedActiveThisSession &&
+                            state.LastActiveState >= 0x01 &&
+                            state.LastActiveState <= 0x06 &&
+                            IsRecent(state.LastActiveUtc, now, RuntimeCacheLifetime))
+                        {
+                            return ActiveDecision(
+                                state.LastActiveState,
+                                "retained stable Dock EF step while a new step is pending");
+                        }
+                        return DockBatteryDecision.Unavailable(
+                            "new active Dock EF step is awaiting confirmation");
+                    }
+
+                    state.LastActiveState = rawState;
                     state.LastActiveUtc = now;
+                    hasConfirmedActiveThisSession = true;
+                    ClearPendingActiveState();
                 }
+                else
+                {
+                    ClearPendingActiveState();
+                    if (!IsRecent(state.LastActiveUtc, now, RuntimePersistHeartbeat))
+                    {
+                        state.LastActiveUtc = now;
+                    }
+                }
+
+                if (confirmedFullTopOff)
+                {
+                    Save();
+                    return FullTopOffDecision();
+                }
+
                 state.FullConfirmed = false;
                 Save();
-
-                return new DockBatteryDecision
-                {
-                    Available = true,
-                    IsCharging = true,
-                    IsFull = false,
-                    Percent = EstimatedPercent(rawState),
-                    BandLevel = BandLevel(rawState),
-                    Reason = "active Dock EF charging step"
-                };
+                return ActiveDecision(rawState, "confirmed active Dock EF step");
             }
 
+            ClearPendingActiveState();
             bool completedHighCharge =
                 rawState == 0x06 &&
+                hasConfirmedActiveThisSession &&
                 previousRawFlag != 0 &&
                 previousRawState == 0x06 &&
                 state.LastActiveState == 0x06 &&
                 IsRecent(state.LastActiveUtc, now, RuntimeCacheLifetime);
+
+            bool retainedSessionFull =
+                rawState == 0x06 &&
+                hasConfirmedActiveThisSession &&
+                state.FullConfirmed &&
+                IsRecent(state.FullConfirmedUtc, now, RuntimeCacheLifetime);
 
             bool restoredRecentFull =
                 rawState == 0x06 &&
                 state.FullConfirmed &&
                 IsRecent(state.FullConfirmedUtc, now, RuntimeCacheLifetime);
 
-            bool presentInactiveFull =
-                rawState == 0x06 &&
-                presenceFlag != 0;
-
-            bool fullRedockSettled =
-                rawState == 0x01 &&
-                previousRawFlag != 0 &&
-                previousRawState == 0x01 &&
-                state.LastActiveState == 0x01 &&
-                IsRecent(state.LastActiveUtc, now, SettlingWindow);
-
             if (completedHighCharge ||
-                restoredRecentFull ||
-                presentInactiveFull ||
-                fullRedockSettled)
+                retainedSessionFull ||
+                restoredRecentFull)
             {
                 state.FullConfirmed = true;
-                if (completedHighCharge ||
-                    fullRedockSettled ||
-                    (!restoredRecentFull &&
-                     !IsRecent(state.FullConfirmedUtc, now, RuntimeCacheLifetime)))
+                if (completedHighCharge)
                 {
                     state.FullConfirmedUtc = now;
                 }
@@ -290,11 +326,9 @@ namespace VaderBatteryTray
                     BandLevel = 4,
                     Reason = completedHighCharge
                         ? "active 0x06 transitioned to inactive 0x06"
-                        : (fullRedockSettled
-                            ? "Dock insertion settled without starting a charge band"
-                            : (restoredRecentFull
-                                ? "recent persisted Full matched inactive 0x06"
-                                : "inactive 0x06 retained with controller-present field"))
+                        : (retainedSessionFull
+                            ? "retained Full confirmed in the current Dock session"
+                            : "restored recent confirmed Full")
                 };
             }
 
@@ -307,6 +341,39 @@ namespace VaderBatteryTray
         internal static int EstimatedPercent(int rawState)
         {
             return BatteryDisplayScale.PercentFromDockState(rawState);
+        }
+
+        private static DockBatteryDecision ActiveDecision(int rawState, string reason)
+        {
+            return new DockBatteryDecision
+            {
+                Available = true,
+                IsCharging = true,
+                IsFull = false,
+                Percent = EstimatedPercent(rawState),
+                BandLevel = BandLevel(rawState),
+                Reason = reason
+            };
+        }
+
+        private static DockBatteryDecision FullTopOffDecision()
+        {
+            return new DockBatteryDecision
+            {
+                Available = true,
+                IsCharging = true,
+                IsFull = false,
+                Percent = 100,
+                BandLevel = 4,
+                Reason = "active 0x06 maintenance after confirmed Full"
+            };
+        }
+
+        private void ClearPendingActiveState()
+        {
+            pendingActiveState = -1;
+            pendingActiveCount = 0;
+            pendingActiveSinceUtc = DateTime.MinValue;
         }
 
         internal static int BandLevel(int rawState)
@@ -344,7 +411,7 @@ namespace VaderBatteryTray
         {
             return savedLastRawFlag != state.LastRawFlag ||
                    savedLastRawState != state.LastRawState ||
-                   savedLastPresenceFlag != state.LastPresenceFlag ||
+                   savedLastField9 != state.LastField9 ||
                    savedLastActiveState != state.LastActiveState ||
                    savedLastActiveUtc != state.LastActiveUtc ||
                    savedFullConfirmed != state.FullConfirmed ||
@@ -355,7 +422,7 @@ namespace VaderBatteryTray
         {
             savedLastRawFlag = state.LastRawFlag;
             savedLastRawState = state.LastRawState;
-            savedLastPresenceFlag = state.LastPresenceFlag;
+            savedLastField9 = state.LastField9;
             savedLastActiveState = state.LastActiveState;
             savedLastActiveUtc = state.LastActiveUtc;
             savedFullConfirmed = state.FullConfirmed;
