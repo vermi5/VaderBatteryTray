@@ -59,4 +59,5 @@ When the controller HID interfaces disappear but the Dock 2 receiver remains,
 the tray and Rainmeter report `controller-unavailable` (asleep, off, or out of
 range). If both disappear, they report `receiver-disconnected`. HID device
 arrival/removal notifications queue an immediate refresh, so waking with Home
-does not wait for the normal polling interval.
+or docking the powered-off controller does not wait for the normal polling
+interval.
