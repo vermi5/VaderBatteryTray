@@ -17,3 +17,14 @@ The native breathing capture uses mode byte `0x02`; the final captured command u
 This proves that the controller firmware accepts native lighting modes and that the ten-zone representation is a real protocol payload, rather than a UI assumption. It does **not** prove that the charging indicator itself uses ten percentage steps, nor does it establish an exact battery percentage for every Dock EF band.
 
 The application currently uses the conservative static-color path for battery synchronization. Native animation replay is not part of the normal battery workflow: it needs individual ACK handling and has previously shown incomplete-transfer behavior in exploratory work. Treat new native modes as controlled experiments, not as a background polling or animation loop.
+
+The controller uses a diffuser-compensated saturated palette distinct from the
+screen palette: `Critical=255,0,0`, `Low=255,64,0`,
+`Medium=255,255,0`, `High=0,255,0`, and `Top=0,0,255`. The semantic
+red-orange-yellow-green-blue sequence remains identical in the tray and
+Rainmeter.
+
+During an active Dock charging snapshot, directly controlled controller LEDs
+instead follow the observed native charge-stage grouping:
+`Critical/Low=red`, `Medium/High=yellow`, and `Top=blue`. An inactive
+confirmed `Top / Charged` snapshot has no charging accent.

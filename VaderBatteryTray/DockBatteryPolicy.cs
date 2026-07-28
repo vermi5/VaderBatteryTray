@@ -288,6 +288,14 @@ namespace VaderBatteryTray
             }
 
             ClearPendingActiveState();
+            if (field9 == 0)
+            {
+                state.FullConfirmed = false;
+                Save();
+                return DockBatteryDecision.Unavailable(
+                    "inactive Dock EF field 9 cleared; retained Full invalidated");
+            }
+
             bool completedHighCharge =
                 rawState == 0x06 &&
                 hasConfirmedActiveThisSession &&
@@ -323,7 +331,7 @@ namespace VaderBatteryTray
                     IsCharging = false,
                     IsFull = true,
                     Percent = 100,
-                    BandLevel = 4,
+                    BandLevel = 5,
                     Reason = completedHighCharge
                         ? "active 0x06 transitioned to inactive 0x06"
                         : (retainedSessionFull
@@ -364,7 +372,7 @@ namespace VaderBatteryTray
                 IsCharging = true,
                 IsFull = false,
                 Percent = 100,
-                BandLevel = 4,
+                BandLevel = 5,
                 Reason = "active 0x06 maintenance after confirmed Full"
             };
         }
@@ -378,15 +386,7 @@ namespace VaderBatteryTray
 
         internal static int BandLevel(int rawState)
         {
-            if (rawState <= 0x02)
-            {
-                return 1;
-            }
-            if (rawState <= 0x04)
-            {
-                return 2;
-            }
-            return 3;
+            return BatteryLevelPresentation.FromDockState(rawState);
         }
 
         private static bool IsRecent(DateTime value, DateTime now, TimeSpan lifetime)

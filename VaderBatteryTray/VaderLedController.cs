@@ -179,33 +179,25 @@ namespace VaderBatteryTray
             int level = snapshot.BandLevel;
             if (level <= 0 && snapshot.Percent >= 0)
             {
-                level = snapshot.Percent <= 33 ? 1 : (snapshot.Percent <= 66 ? 2 : 3);
+                level =
+                    BatteryLevelPresentation.FromInternalPercent(snapshot.Percent);
             }
 
-            switch (level)
+            if (snapshot.IsCharging &&
+                snapshot.DataSource == BatteryDataSource.DockEfBand)
             {
-                case 1:
-                    red = 252;
-                    green = 1;
-                    blue = 1;
-                    return true;
-                case 2:
-                    red = 255;
-                    green = 255;
-                    blue = 0;
-                    return true;
-                case 3:
-                case 4:
-                    red = 51;
-                    green = 153;
-                    blue = 255;
-                    return true;
-                default:
-                    red = 0;
-                    green = 0;
-                    blue = 0;
-                    return false;
+                return VaderLedPolicy.TryGetDockChargingColor(
+                    level,
+                    out red,
+                    out green,
+                    out blue);
             }
+
+            return VaderLedPolicy.TryGetBatteryColor(
+                level,
+                out red,
+                out green,
+                out blue);
         }
 
         private static HidDeviceInfo FindTargetInterface()

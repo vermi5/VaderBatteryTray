@@ -38,7 +38,7 @@ namespace VaderBatteryTray
         {
             StringBuilder json = new StringBuilder();
             json.Append("{");
-            AppendNumber(json, "schemaVersion", 3, false);
+            AppendNumber(json, "schemaVersion", 4, false);
             AppendString(json, "controller", "Flydigi Vader 5 Pro", true);
 
             if (snapshot == null)
@@ -48,8 +48,6 @@ namespace VaderBatteryTray
                 AppendBoolean(json, "controllerPresent", false, true);
                 AppendBoolean(json, "dockPresent", false, true);
                 AppendBoolean(json, "batteryAvailable", false, true);
-                AppendNull(json, "percent", true);
-                AppendBoolean(json, "estimated", false, true);
                 AppendNumber(json, "bandLevel", 0, true);
                 AppendString(json, "band", null, true);
                 AppendBoolean(json, "charging", false, true);
@@ -84,19 +82,6 @@ namespace VaderBatteryTray
             AppendBoolean(json, "controllerPresent", snapshot.ControllerInterfacePresent, true);
             AppendBoolean(json, "dockPresent", snapshot.DockInterfacePresent, true);
             AppendBoolean(json, "batteryAvailable", snapshot.HasBattery || snapshot.HasBatteryBand, true);
-            if (snapshot.Percent >= 0)
-            {
-                AppendNumber(json, "percent", snapshot.Percent, true);
-            }
-            else
-            {
-                AppendNull(json, "percent", true);
-            }
-            AppendBoolean(
-                json,
-                "estimated",
-                snapshot.PercentEstimated && snapshot.Percent >= 0,
-                true);
             AppendNumber(json, "bandLevel", snapshot.BandLevel, true);
             AppendString(json, "band", EmptyToNull(snapshot.BandText), true);
             AppendBoolean(json, "charging", snapshot.IsCharging, true);
@@ -140,12 +125,6 @@ namespace VaderBatteryTray
         {
             AppendName(json, name, comma);
             json.Append(value.ToString(CultureInfo.InvariantCulture));
-        }
-
-        private static void AppendNull(StringBuilder json, string name, bool comma)
-        {
-            AppendName(json, name, comma);
-            json.Append("null");
         }
 
         private static void AppendName(StringBuilder json, string name, bool comma)

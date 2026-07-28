@@ -72,26 +72,27 @@ Flydigi Dock 2 EF report
 Opcode 0x39
 ```
 
-Active Dock EF states use this approximate display scale:
+Active Dock EF states use this qualitative display scale:
 
-| Raw state | Display | Physical band |
-| --- | ---: | --- |
-| `0x01` | ~10% | Low / critical |
-| `0x02` | ~25% | Low / red |
-| `0x03` | ~40% | Medium / yellow |
-| `0x04` | ~55% | Medium / yellow |
-| `0x05` | ~70% | High / blue |
-| `0x06` | ~85% | High / blue |
+| Raw state | Display level | Tray / Rainmeter colour |
+| --- | --- | --- |
+| `0x01` | Critical | red |
+| `0x02` | Low | orange |
+| `0x03` | Medium | yellow |
+| `0x04` | High | green |
+| `0x05` | Top | blue |
+| `0x06` | Top + Charging | blue with charging indicator |
 
-The percentages provide Dock fill steps; they are not measurements. Active
-`0x06` remains Charging because physical observation showed the controller LEDs
-breathing blue. Controller and Dock display values are not carried across a
-source transition because their raw ordinal systems differ.
+Active `0x06` remains Charging because physical observation showed the
+controller LEDs breathing blue. It is not published as a sixth level.
 
 `RawDockFlag` is an activity indicator, not physical Dock presence.
-`RawDockField9` records the following field. Its meaning is unknown: a controlled
-capture kept it at `1` while docked, asleep, charging, and after removal. Inactive
-packets are logged as well as active packets.
+`RawDockField9` records the following field. Its meaning is unknown: a
+controlled capture kept it at `1` while docked, asleep, charging, and after
+some removals, so `1` never proves presence. A powered-off removal also
+produced `00/06/00`; an inactive cleared value invalidates retained Full as
+one-way negative evidence. Inactive packets are logged as well as active
+packets.
 
 A changed active Dock level is not published until it repeats or remains
 unchanged for 1.5 seconds. While confirmation is pending, the last confirmed
@@ -107,9 +108,8 @@ Each entry contains tab-separated fields:
 - `Device`
 - `Transport`
 - `DataSource`
-- `Percent`
-- `PercentEstimated`
 - `BandLevel`
+- `Band`
 - `HasBattery`
 - `HasBatteryBand`
 - `PowerState`
@@ -133,7 +133,8 @@ The background monitor logs:
 - a meaningful change in the Dock signature;
 - a heartbeat after five minutes without a change.
 
-The signature includes raw flag, raw state, percentage, band, and availability.
+The signature includes raw flag, raw state, internal continuity value,
+qualitative level, and availability.
 Transitions such as `01 06` to `00 06` therefore remain visible while
 identical reports are suppressed.
 
@@ -156,8 +157,8 @@ as its presentation anchor.
 
 ## Known limitations
 
-- GET_INFO and Dock EF use different representations. Displayed percentages
-  are source-specific presentation values, not measurements.
+- GET_INFO and Dock EF use different representations and are normalized onto
+  the shared qualitative levels.
 - GET_INFO transport remains `Unknown` until independently verified.
 - Diagnostic `PowerState` may remain `Unknown` where semantics are unproven.
 - Immediately after removal the Dock can briefly retain its preceding state;

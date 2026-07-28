@@ -26,8 +26,8 @@ release download, simply run `VaderBatteryTray.exe` directly.
 
 - Shows controller battery and charging state in the Windows notification area.
 - Reads the Flydigi HID `GET_INFO` response for the supported controller.
-- Normalizes controller and Dock battery steps onto the shared presentation
-  scale `10`, `25`, `40`, `55`, `70`, `85`, and `100%`.
+- Presents controller and Dock readings as the shared qualitative levels
+  `Critical`, `Low`, `Medium`, `High`, and `Top`.
 - Provides copyable, redacted diagnostics.
 - Exposes an optional local Rainmeter bridge on `127.0.0.1`.
 - Can optionally synchronize the controller lighting with battery state.
@@ -71,9 +71,9 @@ Run `Install Startup Shortcut.cmd` from the application folder. To undo it, run
 
 - Windows 10 or Windows 11, x64.
 - Flydigi Vader 5 Pro using the currently supported HID interface.
-- Controller and Dock percentages are source-specific presentation values
-  derived from discrete protocol states; they are not measured values and are
-  not carried across a source transition.
+- Controller and Dock raw values use different representations. The tray maps
+  both to qualitative levels while keeping charging, charged, and discharging
+  as independent power states.
 
 Other Flydigi models and firmware revisions have not been tested exhaustively.
 Unknown or contradictory data is reported as unavailable rather than being
