@@ -4,9 +4,11 @@
 2. Update the assembly and file version in `VaderBatteryTray.cs`.
 3. Run `build.cmd` and `build_led_protocol_test.cmd` locally.
 4. Merge the release change through GitHub.
-5. Push an annotated `vX.Y.Z` tag from the merged commit.
+5. Push an annotated `vX.Y.Z` or `vX.Y.Z-suffix` tag from the merged commit.
 
 The tag workflow builds the project, runs the protocol test, packages the application, attaches the ZIP and its `.sha256` file to the GitHub release, and includes the artifact checksum in the release notes.
+Tags whose version contains a suffix, such as `v1.2.0-rc.1`, are published as
+GitHub prereleases.
 
 Verify a downloaded package with:
 
