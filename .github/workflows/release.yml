@@ -47,4 +47,18 @@ jobs:
             '- `VaderLedProtocolSelfTest.exe` passed.',
             "- SHA-256: $checksum"
           ) | Set-Content -LiteralPath release-notes.md
-          gh release create $env:GITHUB_REF_NAME $zip ($zip + '.sha256') --title "Vader Battery Tray $version" --notes-file release-notes.md
+          $arguments = @(
+            'release',
+            'create',
+            $env:GITHUB_REF_NAME,
+            $zip,
+            ($zip + '.sha256'),
+            '--title',
+            "Vader Battery Tray $version",
+            '--notes-file',
+            'release-notes.md'
+          )
+          if ($version.Contains('-')) {
+            $arguments += '--prerelease'
+          }
+          gh @arguments

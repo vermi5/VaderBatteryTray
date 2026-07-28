@@ -1,5 +1,31 @@
 # Changelog
 
+## 1.2.0-rc.1 - 2026-07-28
+
+- Replace battery percentages in the tray, tooltip, local status API, and
+  Rainmeter skin with `Critical`, `Low`, `Medium`, `High`, and `Top`.
+- Present Dock EF `0x06` as `Top / Charging`, preserving the charging bolt
+  without treating it as a sixth battery level.
+- Use the same red, orange, yellow, green, and blue ascending sequence for the
+  tray icon, Rainmeter skin, and optional controller-lighting policy.
+- Keep the firmware-owned native red low-battery pulse and the existing Dock
+  transient and inferred-Full rules unchanged.
+- Invalidate a retained Dock Full when an inactive EF report clears `data[9]`,
+  matching the observed powered-off controller removal transition
+  `39 00 06 01` to `39 00 06 00`.
+- Keep the last settled public state for up to four seconds while a powered-off
+  dock/undock transition leaves a non-responsive controller HID interface
+  briefly enumerated. This prevents both the tray and Rainmeter from flashing
+  `BATTERY UNAVAILABLE`; a persistent read failure is still published.
+- Arm the wake filter when GET_INFO is unavailable even if Windows still keeps
+  the controller interface enumerated, and require four seconds of stability
+  before a `Critical` candidate replaces an established higher level.
+- Compensate for the controller LED diffuser with a hardware-only saturated
+  RGB palette; tray and Rainmeter colors remain unchanged.
+- Separate battery-level color from the native Dock charging accent: retain the
+  five-level fill while using red, yellow, or blue for the tray bolt,
+  Rainmeter `CHARGING` label, and directly controlled LEDs in Dock charging.
+
 ## 1.1.14 - 2026-07-26
 
 - Treat Dock EF `data[9]` as an unknown diagnostic field instead of physical

@@ -26,14 +26,14 @@ controller / Dock HID report
           +-- diagnostic log (when enabled)
 ```
 
-The local endpoint uses `schemaVersion: 3` and reports source-specific
-`percent`, `estimated`, `bandLevel`, `band`, `charging`, `power`, `connection`,
+The local endpoint uses `schemaVersion: 4` and reports the qualitative
+`bandLevel` and `band` separately from `charging`, `power`, `connection`,
 `source`, `controllerPresent`, and `dockPresent`. Rainmeter consumes these
 fields instead of reading HID reports itself.
 
-The application does not carry a percentage across a Dock-to-Wireless source
-transition. The raw scales differ, so each source keeps its own presentation
-step and physical-band color.
+The raw Dock and controller scales differ. Their internal ordinals are
+normalized for continuity, then exposed only as `Critical`, `Low`, `Medium`,
+`High`, or `Top`.
 
 Source arbitration checks Dock EF even after a valid controller reply. A
 present, active Dock charging report overrides simultaneous `GET_INFO`
@@ -61,3 +61,9 @@ range). If both disappear, they report `receiver-disconnected`. HID device
 arrival/removal notifications queue an immediate refresh, so waking with Home
 or docking the powered-off controller does not wait for the normal polling
 interval.
+
+Unavailable GET_INFO readings arm the wake filter even if Windows has not yet
+removed the controller HID interface. A `Critical` candidate from GET_INFO or
+Dock insertion must remain stable for four seconds before it replaces a
+settled higher level. Genuine low-battery state is therefore delayed briefly
+rather than suppressed.

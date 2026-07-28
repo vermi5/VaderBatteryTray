@@ -15,8 +15,9 @@ using System.Windows.Forms;
 [assembly: System.Reflection.AssemblyCompany("Open source utility")]
 [assembly: System.Reflection.AssemblyProduct("Vader Battery Tray")]
 [assembly: System.Reflection.AssemblyCopyright("2026")]
-[assembly: System.Reflection.AssemblyVersion("1.1.14.0")]
-[assembly: System.Reflection.AssemblyFileVersion("1.1.14.0")]
+[assembly: System.Reflection.AssemblyVersion("1.2.0.0")]
+[assembly: System.Reflection.AssemblyFileVersion("1.2.0.0")]
+[assembly: System.Reflection.AssemblyInformationalVersion("1.2.0-rc.1")]
 
 namespace VaderBatteryTray
 {
@@ -92,6 +93,10 @@ namespace VaderBatteryTray
         private readonly HidBatteryReader reader;
         private readonly VaderLedController ledController;
         private readonly BatteryPresentationContinuity presentationContinuity;
+        private readonly TransientUnavailablePublicationPolicy
+            transientUnavailablePolicy;
+        private readonly CriticalPublicationPolicy
+            criticalPublicationPolicy;
         private readonly SharedBatteryState sharedState;
         private readonly RainmeterBridge rainmeterBridge;
         private readonly HidDeviceChangeWindow deviceChangeWindow;
@@ -99,10 +104,10 @@ namespace VaderBatteryTray
         private readonly object hidOperationLock = new object();
 
         private Icon currentIcon;
-        private int lastPercent = -2;
         private int lastBandLevel = -1;
         private string lastTooltip = String.Empty;
         private bool lastCharging;
+        private ChargingAccent lastChargingAccent = ChargingAccent.None;
         private bool lastConnected;
         private BatterySnapshot lastSnapshot;
         private int refreshRequested;
@@ -112,7 +117,6 @@ namespace VaderBatteryTray
         private BatterySnapshot completedSnapshot;
         private Exception completedRefreshError;
         private bool controllerUnavailableSeen;
-        private bool wakeReadingDeferred;
 
         public TrayApplicationContext()
         {
@@ -120,6 +124,10 @@ namespace VaderBatteryTray
             ledController = new VaderLedController();
             presentationContinuity = new BatteryPresentationContinuity(
                 new BatteryPresentationRegistryStateStore());
+            transientUnavailablePolicy =
+                new TransientUnavailablePublicationPolicy();
+            criticalPublicationPolicy =
+                new CriticalPublicationPolicy();
             sharedState = new SharedBatteryState();
             rainmeterBridge = new RainmeterBridge(sharedState, RequestRefresh);
             rainmeterBridge.Start();
@@ -171,7 +179,12 @@ namespace VaderBatteryTray
             notifyIcon.ContextMenuStrip = menu;
             UpdateLedMenuState();
 
-            SetTrayVisual(-1, 0, false, false, "Vader 5 Pro | Starting...");
+            SetTrayVisual(
+                0,
+                false,
+                ChargingAccent.None,
+                false,
+                "Vader 5 Pro | Starting...");
             notifyIcon.Visible = true;
 
             refreshTimer = new System.Windows.Forms.Timer();
@@ -207,30 +220,74 @@ namespace VaderBatteryTray
             Interlocked.Exchange(ref refreshRequested, 1);
         }
 
-        private bool ShouldDeferWakeReading(BatterySnapshot snapshot)
+        private bool ShouldDeferTransitionalReading(BatterySnapshot snapshot)
         {
             if (snapshot == null)
             {
                 return false;
             }
 
+            bool ambiguousUnavailable =
+                snapshot.InterfacePresent &&
+                snapshot.ControllerInterfacePresent &&
+                !snapshot.HasBattery &&
+                !snapshot.HasBatteryBand &&
+                !snapshot.HasLiveControllerSession;
+            bool unavailableControllerReading =
+                !snapshot.HasBattery &&
+                !snapshot.HasBatteryBand &&
+                !snapshot.HasLiveControllerSession;
+            if (unavailableControllerReading)
+            {
+                // Arm wake filtering even when Windows still exposes the HID
+                // interface. Dock/undock can produce exactly that intermediate
+                // state, so ControllerInterfacePresent alone is not sufficient.
+                controllerUnavailableSeen = true;
+                criticalPublicationPolicy.Reset();
+            }
+
+            bool hasStablePublishedState =
+                lastSnapshot != null &&
+                (lastSnapshot.HasBattery ||
+                 lastSnapshot.HasBatteryBand ||
+                 !lastSnapshot.ControllerInterfacePresent);
+            if (transientUnavailablePolicy.ShouldDefer(
+                ambiguousUnavailable,
+                hasStablePublishedState,
+                snapshot.UtcObservationTimestamp))
+            {
+                // During powered-off dock/undock transitions Windows can keep
+                // the controller HID interface enumerated briefly after
+                // GET_INFO has stopped replying. Keep the last settled public
+                // state while the Dock monitor and interface inventory agree.
+                wakeRefreshTimer.Stop();
+                wakeRefreshTimer.Start();
+                return true;
+            }
+
             if (!snapshot.ControllerInterfacePresent &&
                 !snapshot.HasBattery &&
                 !snapshot.HasBatteryBand)
             {
-                controllerUnavailableSeen = true;
-                wakeReadingDeferred = false;
                 return false;
             }
 
-            if (controllerUnavailableSeen &&
-                snapshot.HasLiveControllerSession &&
-                !wakeReadingDeferred)
+            bool currentIsCritical =
+                (snapshot.HasBattery || snapshot.HasBatteryBand) &&
+                snapshot.BandLevel == 1;
+            bool criticalRequiresConfirmation =
+                controllerUnavailableSeen ||
+                lastSnapshot == null ||
+                lastSnapshot.BandLevel > 1;
+            if (criticalPublicationPolicy.ShouldDefer(
+                currentIsCritical,
+                criticalRequiresConfirmation,
+                snapshot.UtcObservationTimestamp))
             {
-                // The first GET_INFO immediately after HID re-enumeration can
-                // report the controller's initial 10% step. Keep the explicit
-                // asleep/off state briefly and publish the next stable reply.
-                wakeReadingDeferred = true;
+                // A level-zero GET_INFO reply is sometimes the controller's
+                // initialization value, and Dock insertion can also expose a
+                // brief lowest band. Require bounded temporal stability before
+                // replacing an established non-Critical presentation.
                 wakeRefreshTimer.Stop();
                 wakeRefreshTimer.Start();
                 return true;
@@ -239,7 +296,6 @@ namespace VaderBatteryTray
             if (snapshot.HasLiveControllerSession)
             {
                 controllerUnavailableSeen = false;
-                wakeReadingDeferred = false;
             }
 
             return false;
@@ -429,7 +485,12 @@ namespace VaderBatteryTray
                 lastSnapshot = BatterySnapshot.Unavailable("Reader error: " + error.Message, false);
                 sharedState.Publish(lastSnapshot);
                 statusMenuItem.Text = LimitText("HID reader error: " + error.Message, 120);
-                SetTrayVisual(-1, 0, false, false, "Vader 5 Pro | Battery unavailable");
+                SetTrayVisual(
+                    0,
+                    false,
+                    ChargingAccent.None,
+                    false,
+                    "Vader 5 Pro | Battery unavailable");
                 return;
             }
 
@@ -438,55 +499,92 @@ namespace VaderBatteryTray
                 lastSnapshot = BatterySnapshot.Unavailable("Reader error: no battery snapshot returned", false);
                 sharedState.Publish(lastSnapshot);
                 statusMenuItem.Text = "HID reader error: no battery snapshot returned";
-                SetTrayVisual(-1, 0, false, false, "Vader 5 Pro | Battery unavailable");
+                SetTrayVisual(
+                    0,
+                    false,
+                    ChargingAccent.None,
+                    false,
+                    "Vader 5 Pro | Battery unavailable");
                 return;
             }
 
-            if (ShouldDeferWakeReading(snapshot))
+            if (ShouldDeferTransitionalReading(snapshot))
             {
                 return;
             }
 
             lastSnapshot = snapshot;
             sharedState.Publish(snapshot);
+            ChargingAccent chargingAccent =
+                ChargingAccentPolicy.FromState(
+                    snapshot.IsCharging,
+                    snapshot.DataSource == BatteryDataSource.DockEfBand,
+                    snapshot.BandLevel);
 
             if (snapshot.HasBattery)
             {
-                string tooltip = "Vader 5 Pro | " + snapshot.Percent.ToString() + "% | " + snapshot.PowerText + " | " + snapshot.ConnectionText;
-                string menuText = "Vader 5 Pro: " + snapshot.Percent.ToString() + "% - " + snapshot.PowerText + " - " + snapshot.ConnectionText;
+                string tooltip = "Vader 5 Pro | " + snapshot.BandText + " | " + snapshot.PowerText + " | " + snapshot.ConnectionText;
+                string menuText = "Vader 5 Pro: " + snapshot.BandText + " - " + snapshot.PowerText + " - " + snapshot.ConnectionText;
                 statusMenuItem.Text = LimitText(menuText, 120);
-                SetTrayVisual(snapshot.Percent, snapshot.BandLevel, snapshot.IsCharging, true, LimitText(tooltip, 63));
+                SetTrayVisual(
+                    snapshot.BandLevel,
+                    snapshot.IsCharging,
+                    chargingAccent,
+                    true,
+                    LimitText(tooltip, 63));
             }
             else if (snapshot.HasBatteryBand)
             {
-                string batteryText = snapshot.Percent >= 0
-                    ? snapshot.Percent.ToString() + "%"
-                    : snapshot.BandText;
-                string tooltip = "Vader 5 Pro | " + batteryText + " | " + snapshot.PowerText + " | " + snapshot.ConnectionText;
-                string menuText = "Vader 5 Pro: " + batteryText + " - " + snapshot.PowerText + " - " + snapshot.ConnectionText;
+                string tooltip = "Vader 5 Pro | " + snapshot.BandText + " | " + snapshot.PowerText + " | " + snapshot.ConnectionText;
+                string menuText = "Vader 5 Pro: " + snapshot.BandText + " - " + snapshot.PowerText + " - " + snapshot.ConnectionText;
                 statusMenuItem.Text = LimitText(menuText, 120);
-                SetTrayVisual(snapshot.Percent >= 0 ? snapshot.Percent : -1, snapshot.BandLevel, snapshot.IsCharging, true, LimitText(tooltip, 63));
+                SetTrayVisual(
+                    snapshot.BandLevel,
+                    snapshot.IsCharging,
+                    chargingAccent,
+                    true,
+                    LimitText(tooltip, 63));
             }
             else if (!snapshot.ControllerInterfacePresent && snapshot.DockInterfacePresent)
             {
                 statusMenuItem.Text = "Vader 5 Pro: controller asleep or turned off";
                 string tooltip = "Vader 5 Pro | Controller asleep or off";
-                SetTrayVisual(-1, 0, snapshot.IsCharging, true, LimitText(tooltip, 63));
+                SetTrayVisual(
+                    0,
+                    snapshot.IsCharging,
+                    ChargingAccent.None,
+                    true,
+                    LimitText(tooltip, 63));
             }
             else if (!snapshot.ControllerInterfacePresent && !snapshot.DockInterfacePresent)
             {
                 statusMenuItem.Text = "Vader 5 Pro: receiver disconnected";
-                SetTrayVisual(-1, 0, false, false, "Vader 5 Pro | Receiver disconnected");
+                SetTrayVisual(
+                    0,
+                    false,
+                    ChargingAccent.None,
+                    false,
+                    "Vader 5 Pro | Receiver disconnected");
             }
             else if (snapshot.InterfacePresent)
             {
                 statusMenuItem.Text = LimitText("Vader 5 Pro: controller waking or unavailable - " + snapshot.Error, 120);
-                SetTrayVisual(-1, 0, snapshot.IsCharging, true, "Vader 5 Pro | Controller unavailable");
+                SetTrayVisual(
+                    0,
+                    snapshot.IsCharging,
+                    ChargingAccent.None,
+                    true,
+                    "Vader 5 Pro | Controller unavailable");
             }
             else
             {
                 statusMenuItem.Text = "Vader 5 Pro: HID interface not found";
-                SetTrayVisual(-1, 0, false, false, "Vader 5 Pro | Not connected");
+                SetTrayVisual(
+                    0,
+                    false,
+                    ChargingAccent.None,
+                    false,
+                    "Vader 5 Pro | Not connected");
             }
         }
 
@@ -518,9 +616,10 @@ namespace VaderBatteryTray
                         snapshot.RawGetInfoLevelNibble.Value,
                         snapshot.Percent,
                         snapshot.UtcObservationTimestamp);
-                snapshot.PercentEstimated = true;
-                snapshot.BandLevel = PresentationBandFromPercent(snapshot.Percent);
-                snapshot.BandText = PresentationBandText(snapshot.BandLevel);
+                snapshot.BandLevel =
+                    BatteryLevelPresentation.FromInternalPercent(snapshot.Percent);
+                snapshot.BandText =
+                    BatteryLevelPresentation.Text(snapshot.BandLevel);
                 return;
             }
 
@@ -531,46 +630,12 @@ namespace VaderBatteryTray
             }
         }
 
-        private static int PresentationBandFromPercent(int percent)
-        {
-            if (percent >= 100)
-            {
-                return 4;
-            }
-            if (percent >= 70)
-            {
-                return 3;
-            }
-            if (percent >= 40)
-            {
-                return 2;
-            }
-            return percent >= 0 ? 1 : 0;
-        }
-
-        private static string PresentationBandText(int bandLevel)
-        {
-            switch (bandLevel)
-            {
-                case 1:
-                    return "Low";
-                case 2:
-                    return "Medium";
-                case 3:
-                    return "High";
-                case 4:
-                    return "Full";
-                default:
-                    return String.Empty;
-            }
-        }
-
         private void CopyDiagnostics()
         {
             try
             {
                 StringBuilder text = new StringBuilder();
-                text.AppendLine("Vader Battery Tray 1.1.14 diagnostics");
+                text.AppendLine("Vader Battery Tray 1.2.0-rc.1 diagnostics");
                 text.AppendLine("Generated: " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
                 text.AppendLine("OS: " + Environment.OSVersion);
                 text.AppendLine("64-bit process: " + Environment.Is64BitProcess);
@@ -600,13 +665,8 @@ namespace VaderBatteryTray
                 text.AppendLine("    Controller HID present: " + snapshot.ControllerInterfacePresent);
                 text.AppendLine("    Dock/receiver HID present: " + snapshot.DockInterfacePresent);
                 text.AppendLine("    Has battery: " + snapshot.HasBattery);
-                text.AppendLine("    Percent: " +
-                    (snapshot.Percent >= 0
-                        ? snapshot.Percent.ToString() +
-                            (snapshot.PercentEstimated ? " (estimated)" : "")
-                        : "(unavailable)"));
                 text.AppendLine("    Has battery band: " + snapshot.HasBatteryBand);
-                text.AppendLine("    Battery band: " + EmptyMarker(snapshot.BandText));
+                text.AppendLine("    Battery level: " + EmptyMarker(snapshot.BandText));
                 text.AppendLine("    Power: " + EmptyMarker(snapshot.PowerText));
                 text.AppendLine("    Connection: " + EmptyMarker(snapshot.ConnectionText));
                 text.AppendLine("    Device ID: " + EmptyMarker(snapshot.DeviceId));
@@ -641,13 +701,26 @@ namespace VaderBatteryTray
             }
         }
 
-        private void SetTrayVisual(int percent, int bandLevel, bool charging, bool connected, string tooltip)
+        private void SetTrayVisual(
+            int bandLevel,
+            bool charging,
+            ChargingAccent chargingAccent,
+            bool connected,
+            string tooltip)
         {
-            bool visualChanged = percent != lastPercent || bandLevel != lastBandLevel || charging != lastCharging || connected != lastConnected;
+            bool visualChanged =
+                bandLevel != lastBandLevel ||
+                charging != lastCharging ||
+                chargingAccent != lastChargingAccent ||
+                connected != lastConnected;
 
             if (visualChanged || currentIcon == null)
             {
-                Icon newIcon = BatteryIcon.Create(percent, bandLevel, charging, connected);
+                Icon newIcon = BatteryIcon.Create(
+                    bandLevel,
+                    charging,
+                    chargingAccent,
+                    connected);
                 Icon oldIcon = currentIcon;
                 currentIcon = newIcon;
                 notifyIcon.Icon = currentIcon;
@@ -663,9 +736,9 @@ namespace VaderBatteryTray
                 lastTooltip = tooltip;
             }
 
-            lastPercent = percent;
             lastBandLevel = bandLevel;
             lastCharging = charging;
+            lastChargingAccent = chargingAccent;
             lastConnected = connected;
         }
 
@@ -837,7 +910,6 @@ namespace VaderBatteryTray
         public bool DockInterfacePresent;
         public bool HasBattery;
         public bool HasBatteryBand;
-        public bool PercentEstimated;
         public int Percent;
         public int BandLevel;
         public string BandText;
@@ -1186,11 +1258,12 @@ namespace VaderBatteryTray
             {
                 snapshot.Percent = BatteryDisplayScale.PercentFromLevel(level);
                 snapshot.HasBattery = snapshot.Percent >= 0;
-                snapshot.PercentEstimated = snapshot.Percent >= 0;
                 if (snapshot.HasBattery)
                 {
-                    snapshot.BandLevel = ChargingBandFromLevel(level);
-                    snapshot.BandText = BandText(snapshot.BandLevel);
+                    snapshot.BandLevel =
+                        BatteryLevelPresentation.FromControllerLevel(level);
+                    snapshot.BandText =
+                        BatteryLevelPresentation.Text(snapshot.BandLevel);
                     snapshot.IsCharging = false;
                     snapshot.PowerText = "Discharging";
                 }
@@ -1205,11 +1278,12 @@ namespace VaderBatteryTray
                 snapshot.Percent = BatteryDisplayScale.PercentFromLevel(level);
                 snapshot.HasBattery = false;
                 snapshot.HasBatteryBand = snapshot.Percent >= 0;
-                snapshot.PercentEstimated = snapshot.Percent >= 0;
                 if (snapshot.HasBatteryBand)
                 {
-                    snapshot.BandLevel = ChargingBandFromLevel(level);
-                    snapshot.BandText = BandText(snapshot.BandLevel);
+                    snapshot.BandLevel =
+                        BatteryLevelPresentation.FromControllerLevel(level);
+                    snapshot.BandText =
+                        BatteryLevelPresentation.Text(snapshot.BandLevel);
                     snapshot.IsCharging = true;
                     snapshot.PowerText = "Charging";
                 }
@@ -1223,9 +1297,9 @@ namespace VaderBatteryTray
             {
                 snapshot.HasBattery = true;
                 snapshot.Percent = 100;
-                snapshot.PercentEstimated = false;
-                snapshot.BandLevel = 3;
-                snapshot.BandText = BandText(snapshot.BandLevel);
+                snapshot.BandLevel = 5;
+                snapshot.BandText =
+                    BatteryLevelPresentation.Text(snapshot.BandLevel);
                 snapshot.IsCharging = false;
                 snapshot.PowerText = "Charged";
             }
@@ -1412,9 +1486,9 @@ namespace VaderBatteryTray
             snapshot.HasBattery = decision.IsFull;
             snapshot.HasBatteryBand = true;
             snapshot.Percent = decision.Percent;
-            snapshot.PercentEstimated = !decision.IsFull;
             snapshot.BandLevel = decision.BandLevel;
-            snapshot.BandText = BandText(decision.BandLevel);
+            snapshot.BandText =
+                BatteryLevelPresentation.Text(decision.BandLevel);
             snapshot.IsCharging = decision.IsCharging;
             snapshot.PowerText = decision.IsFull ? "Charged" : "Charging";
             snapshot.ConnectionText = "Dock";
@@ -1425,7 +1499,7 @@ namespace VaderBatteryTray
                 ", field 9 " + field9.ToString() +
                 (decision.IsFull
                     ? " (Full inferred: " + decision.Reason + ")"
-                    : " (estimated display percentage)");
+                    : " (qualitative battery level)");
             return ApplyDockDiagnostics(
                 snapshot,
                 report,
@@ -1784,7 +1858,7 @@ namespace VaderBatteryTray
                     // before it can override a live controller reply.
                     if (lastSnapshot != null &&
                         lastSnapshot.Percent == 100 &&
-                        lastSnapshot.BandLevel == 4 &&
+                        lastSnapshot.BandLevel == 5 &&
                         !lastSnapshot.IsCharging)
                     {
                         return;
@@ -1821,36 +1895,6 @@ namespace VaderBatteryTray
                 }
             }
             return -1;
-        }
-
-        private static int ChargingBandFromLevel(int level)
-        {
-            if (level <= 1)
-            {
-                return 1;
-            }
-            if (level <= 3)
-            {
-                return 2;
-            }
-            return 3;
-        }
-
-        private static string BandText(int bandLevel)
-        {
-            switch (bandLevel)
-            {
-                case 1:
-                    return "Low";
-                case 2:
-                    return "Medium";
-                case 3:
-                    return "High";
-                case 4:
-                    return "Full";
-                default:
-                    return String.Empty;
-            }
         }
 
         private static bool TryReadReport(FileStream stream, int inputLength, int timeoutMs, out byte[] report)
@@ -2136,7 +2180,11 @@ namespace VaderBatteryTray
 
     internal static class BatteryIcon
     {
-        public static Icon Create(int percent, int bandLevel, bool charging, bool connected)
+        public static Icon Create(
+            int bandLevel,
+            bool charging,
+            ChargingAccent chargingAccent,
+            bool connected)
         {
             using (Bitmap bitmap = new Bitmap(64, 64, System.Drawing.Imaging.PixelFormat.Format32bppArgb))
             using (Graphics graphics = Graphics.FromImage(bitmap))
@@ -2170,12 +2218,10 @@ namespace VaderBatteryTray
                         graphics.DrawLine(slash, 25, 10, 6, 25);
                     }
                 }
-                else if ((percent >= 0 && percent <= 100) || bandLevel > 0)
+                else if (bandLevel > 0)
                 {
-                    int visualPercent = percent >= 0 ? percent : BandPercent(bandLevel);
-                    Color fillColor = BandColor(
-                        bandLevel > 0 ? bandLevel : PercentBand(percent),
-                        charging);
+                    int visualFill = BandFill(bandLevel);
+                    Color fillColor = BandColor(bandLevel);
 
                     Rectangle inner = new Rectangle(4, 9, 20, 15);
                     using (Brush background = new SolidBrush(Color.FromArgb(235, 245, 245, 245)))
@@ -2189,8 +2235,8 @@ namespace VaderBatteryTray
                         graphics.DrawLine(highlight, body.Left + 2, body.Top + 2, body.Right - 2, body.Top + 2);
                     }
 
-                    int fillWidth = (int)Math.Round(inner.Width * visualPercent / 100.0);
-                    if (visualPercent > 0 && fillWidth < 2)
+                    int fillWidth = (int)Math.Round(inner.Width * visualFill / 100.0);
+                    if (visualFill > 0 && fillWidth < 2)
                     {
                         fillWidth = 2;
                     }
@@ -2213,7 +2259,8 @@ namespace VaderBatteryTray
                             new Point(24, 13),
                             new Point(17, 13)
                         };
-                        using (Brush boltFill = new SolidBrush(Color.FromArgb(255, 250, 255, 255)))
+                        using (Brush boltFill =
+                            new SolidBrush(ChargingAccentColor(chargingAccent)))
                         using (Pen boltOutline = new Pen(Color.FromArgb(35, 35, 35), 1.0f))
                         {
                             graphics.FillPolygon(boltFill, bolt);
@@ -2247,49 +2294,56 @@ namespace VaderBatteryTray
             }
         }
 
-        private static int BandPercent(int bandLevel)
+        private static int BandFill(int bandLevel)
         {
             switch (bandLevel)
             {
                 case 1:
-                    return 30;
+                    return 20;
                 case 2:
-                    return 62;
+                    return 40;
                 case 3:
-                    return 80;
+                    return 60;
                 case 4:
+                    return 80;
+                case 5:
                     return 100;
                 default:
                     return 0;
             }
         }
 
-        private static int PercentBand(int percent)
-        {
-            if (percent <= 40)
-            {
-                return 1;
-            }
-            if (percent < 80)
-            {
-                return 2;
-            }
-            return 3;
-        }
-
-        private static Color BandColor(int bandLevel, bool charging)
+        private static Color BandColor(int bandLevel)
         {
             switch (bandLevel)
             {
                 case 1:
                     return Color.FromArgb(236, 64, 64);
                 case 2:
-                    return Color.FromArgb(245, 184, 42);
+                    return Color.FromArgb(255, 140, 0);
                 case 3:
+                    return Color.FromArgb(245, 200, 42);
                 case 4:
+                    return Color.FromArgb(91, 248, 128);
+                case 5:
                     return Color.FromArgb(51, 153, 255);
                 default:
                     return Color.Gray;
+            }
+        }
+
+        private static Color ChargingAccentColor(ChargingAccent accent)
+        {
+            switch (accent)
+            {
+                case ChargingAccent.Red:
+                    return Color.FromArgb(236, 64, 64);
+                case ChargingAccent.Yellow:
+                    return Color.FromArgb(245, 200, 42);
+                case ChargingAccent.Blue:
+                    return Color.FromArgb(51, 153, 255);
+                default:
+                    return Color.FromArgb(255, 250, 255, 255);
             }
         }
     }

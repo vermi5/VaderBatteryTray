@@ -28,21 +28,19 @@ refresh and rejects repeated requests received within two seconds.
 
 ## State schema
 
-Example exact-battery response:
+Example response:
 
 ```json
 {
-  "schemaVersion": 3,
+  "schemaVersion": 4,
   "controller": "Flydigi Vader 5 Pro",
   "status": "ok",
   "connected": true,
   "controllerPresent": true,
   "dockPresent": true,
   "batteryAvailable": true,
-  "percent": 85,
-  "estimated": true,
-  "bandLevel": 3,
-  "band": "High",
+  "bandLevel": 5,
+  "band": "Top",
   "charging": false,
   "power": "Discharging",
   "connection": "Wireless",
@@ -54,17 +52,15 @@ Example exact-battery response:
 }
 ```
 
-Controller and Dock 2 values use their own raw scales. `percent` is a
-source-specific presentation step: it must not be used to infer the physical
-band or colour across a source transition. Active Dock values are estimated;
-confirmed Full uses `100`.
-Confirmed Full uses `percent: 100`, `estimated: false`, `bandLevel: 4`, and
-`band: "Full"`.
+Controller and Dock 2 values use their own raw scales. The bridge exposes only
+the common qualitative levels: `Critical`, `Low`, `Medium`, `High`, and `Top`.
+Charging and Charged remain independent power states. Confirmed or inferred
+Full therefore uses `bandLevel: 5`, `band: "Top"`, and `power: "Charged"`.
 
 Possible `status` values:
 
 - `starting`: no refresh has completed yet.
-- `ok`: an exact percentage or qualitative battery band is available.
+- `ok`: a qualitative battery level is available.
 - `unavailable`: controller interfaces exist, but a current battery reply is unavailable.
 - `controller-unavailable`: the receiver/dock is present but the controller HID
   interfaces are absent (the controller is asleep, turned off, or out of range).
@@ -84,7 +80,5 @@ The bundled controller skin uses the command endpoint only when the user
 explicitly clicks refresh or middle-clicks the skin. No device configuration,
 lighting, mapping, or firmware command is exposed.
 
-The `estimated` field identifies Dock presentation steps without adding a
-potentially ambiguous prefix. The bundled skin uses `bandLevel` for color, not
-the display percentage, so a displayed value from one source is never used to
-colour the other source.
+The bundled skin uses `bandLevel` for both fill and colour. It never displays or
+reconstructs a battery percentage.

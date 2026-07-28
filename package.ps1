@@ -10,9 +10,16 @@ $applicationPath = Join-Path $applicationDirectory 'VaderBatteryTray.exe'
 
 if ([string]::IsNullOrWhiteSpace($Version)) {
     $source = Get-Content -LiteralPath $sourceFile -Raw
-    $match = [regex]::Match($source, 'AssemblyFileVersion\("(\d+\.\d+\.\d+)\.0"\)')
+    $match = [regex]::Match(
+        $source,
+        'AssemblyInformationalVersion\("([^"]+)"\)')
     if (-not $match.Success) {
-        throw 'Could not determine the package version from AssemblyFileVersion.'
+        $match = [regex]::Match(
+            $source,
+            'AssemblyFileVersion\("(\d+\.\d+\.\d+)\.0"\)')
+    }
+    if (-not $match.Success) {
+        throw 'Could not determine the package version from assembly metadata.'
     }
     $Version = $match.Groups[1].Value
 }

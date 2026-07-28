@@ -52,9 +52,8 @@ namespace VaderBatteryTray
                     Append(line, "Device", Clean(redactedDeviceId));
                     Append(line, "Transport", snapshot.Transport.ToString());
                     Append(line, "DataSource", snapshot.DataSource.ToString());
-                    Append(line, "Percent", snapshot.Percent.ToString(CultureInfo.InvariantCulture));
-                    Append(line, "PercentEstimated", snapshot.PercentEstimated.ToString());
                     Append(line, "BandLevel", snapshot.BandLevel.ToString(CultureInfo.InvariantCulture));
+                    Append(line, "Band", Clean(snapshot.BandText));
                     Append(line, "HasBattery", snapshot.HasBattery.ToString());
                     Append(line, "HasBatteryBand", snapshot.HasBatteryBand.ToString());
                     Append(line, "PowerState", snapshot.PowerState.ToString());

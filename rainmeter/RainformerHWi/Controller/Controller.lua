@@ -29,9 +29,10 @@ local function colorVariable(name, alphaName)
     return SKIN:GetVariable(name) .. ',' .. SKIN:GetVariable(alphaName)
 end
 
-local function applyDisplay(statusText, batteryText, connectionText, powerText, level, color, batteryColor)
+local function applyDisplay(statusText, batteryText, connectionText, powerText, level, color, batteryColor, statusColor)
     currentLevel = level
     SKIN:Bang('!SetOption', 'MeterStatus', 'Text', statusText)
+    SKIN:Bang('!SetOption', 'MeterStatus', 'FontColor', statusColor or color)
     SKIN:Bang('!SetOption', 'MeterBattery', 'Text', batteryText)
     SKIN:Bang('!SetOption', 'MeterBattery', 'FontColor', batteryColor or color)
     SKIN:Bang('!SetOption', 'MeterConnection', 'Text', connectionText)
@@ -71,17 +72,14 @@ function Update()
     end
 
     local status = jsonString(json, 'status') or 'unavailable'
-    local percent = jsonNumber(json, 'percent')
-    local estimated = jsonBoolean(json, 'estimated') or false
     local bandLevel = jsonNumber(json, 'bandLevel') or 0
     local band = jsonString(json, 'band')
     local charging = jsonBoolean(json, 'charging') or false
     local power = jsonString(json, 'power') or ''
     local connection = jsonString(json, 'connection') or 'Controller'
+
     local signature = table.concat({
         status,
-        tostring(percent),
-        tostring(estimated),
         tostring(bandLevel),
         tostring(band),
         tostring(charging),
@@ -131,7 +129,7 @@ function Update()
         applyDisplay(
             'CONTROLLER ASLEEP / OFF',
             '--',
-            'Wake with Home',
+            'Wake with Guide',
             '',
             0,
             colorVariable('colorInactiveButton', 'colorInactiveButtonAlpha'))
@@ -149,42 +147,48 @@ function Update()
         return currentLevel
     end
 
-    local batteryText
-    local level
-    if percent ~= nil then
-        batteryText = tostring(percent) .. '%'
-        level = math.max(0, math.min(100, percent))
-    else
-        batteryText = string.upper(band or 'UNKNOWN')
-        if bandLevel == 1 then
-            level = 33
-        elseif bandLevel == 2 then
-            level = 66
-        elseif bandLevel == 3 then
-            -- Dock EF reports a qualitative high band, not full charge.
-            -- Use the matching controller step to avoid a docking-only jump.
-            level = 80
-        elseif bandLevel == 4 then
-            level = 100
-        else
-            level = 0
-        end
-    end
+    local batteryText = string.upper(band or 'UNKNOWN')
+    local level = math.max(0, math.min(5, bandLevel)) * 20
 
     local barColor
     local batteryColor
     if bandLevel == 1 then
-        barColor = '252,1,1,255'
-        batteryColor = '252,1,1,255'
+        barColor = '236,64,64,255'
+        batteryColor = '236,64,64,255'
     elseif bandLevel == 2 then
-        barColor = '227,182,18,255'
-        batteryColor = '227,182,18,255'
+        barColor = '255,140,0,255'
+        batteryColor = '255,140,0,255'
+    elseif bandLevel == 3 then
+        barColor = '245,200,42,255'
+        batteryColor = '245,200,42,255'
+    elseif bandLevel == 4 then
+        barColor = '91,248,128,255'
+        batteryColor = '91,248,128,255'
     else
         barColor = '51,153,255,255'
         batteryColor = '51,153,255,255'
     end
 
-    local stateText = charging and 'CHARGING' or (band == 'Full' and 'FULL' or 'BATTERY')
-    applyDisplay(stateText, batteryText, connection, power, level, barColor, batteryColor)
+    local stateText = charging and 'CHARGING' or (power == 'Charged' and 'CHARGED' or 'BATTERY')
+    local statusColor = barColor
+    if charging and connection == 'Dock' then
+        if bandLevel <= 2 then
+            statusColor = '236,64,64,255'
+        elseif bandLevel <= 4 then
+            statusColor = '245,200,42,255'
+        else
+            statusColor = '51,153,255,255'
+        end
+    end
+
+    applyDisplay(
+        stateText,
+        batteryText,
+        connection,
+        power,
+        level,
+        barColor,
+        batteryColor,
+        statusColor)
     return currentLevel
 end

@@ -3,6 +3,38 @@ using System;
 
 namespace VaderBatteryTray
 {
+    internal enum ChargingAccent
+    {
+        None,
+        Red,
+        Yellow,
+        Blue
+    }
+
+    internal static class ChargingAccentPolicy
+    {
+        public static ChargingAccent FromState(
+            bool charging,
+            bool dockSource,
+            int bandLevel)
+        {
+            if (!charging || !dockSource || bandLevel <= 0)
+            {
+                return ChargingAccent.None;
+            }
+
+            if (bandLevel <= 2)
+            {
+                return ChargingAccent.Red;
+            }
+            if (bandLevel <= 4)
+            {
+                return ChargingAccent.Yellow;
+            }
+            return ChargingAccent.Blue;
+        }
+    }
+
     internal static class BatterySourcePolicy
     {
         public static bool ShouldPreferDock(
@@ -17,6 +49,9 @@ namespace VaderBatteryTray
 
     internal static class BatteryDisplayScale
     {
+        // Legacy numeric values are retained only as internal continuity
+        // ordinals and for the firmware-owned low-battery alert threshold.
+        // Public presentation uses BatteryLevelPresentation exclusively.
         private static readonly int[] Percentages = new int[]
         {
             10, 25, 40, 55, 70, 85, 100
@@ -49,6 +84,129 @@ namespace VaderBatteryTray
                 }
             }
             return -1;
+        }
+    }
+
+    internal static class BatteryLevelPresentation
+    {
+        public static int FromControllerLevel(int level)
+        {
+            return FromOrdinal(level);
+        }
+
+        public static int FromDockState(int rawState)
+        {
+            return FromOrdinal(rawState - 1);
+        }
+
+        public static int FromInternalPercent(int percent)
+        {
+            return FromOrdinal(BatteryDisplayScale.OrdinalFromPercent(percent));
+        }
+
+        public static int FromOrdinal(int ordinal)
+        {
+            if (ordinal < 0)
+            {
+                return 0;
+            }
+            if (ordinal >= 4)
+            {
+                return 5;
+            }
+            return ordinal + 1;
+        }
+
+        public static string Text(int level)
+        {
+            switch (level)
+            {
+                case 1:
+                    return "Critical";
+                case 2:
+                    return "Low";
+                case 3:
+                    return "Medium";
+                case 4:
+                    return "High";
+                case 5:
+                    return "Top";
+                default:
+                    return String.Empty;
+            }
+        }
+    }
+
+    internal sealed class TransientUnavailablePublicationPolicy
+    {
+        internal static readonly TimeSpan GracePeriod =
+            TimeSpan.FromSeconds(4);
+
+        private DateTime ambiguousSinceUtc = DateTime.MinValue;
+
+        public bool ShouldDefer(
+            bool ambiguousUnavailable,
+            bool hasStablePublishedState,
+            DateTime observedUtc)
+        {
+            if (!ambiguousUnavailable || !hasStablePublishedState)
+            {
+                ambiguousSinceUtc = DateTime.MinValue;
+                return false;
+            }
+
+            DateTime now = observedUtc == DateTime.MinValue
+                ? DateTime.UtcNow
+                : observedUtc.ToUniversalTime();
+            if (ambiguousSinceUtc == DateTime.MinValue ||
+                now < ambiguousSinceUtc)
+            {
+                ambiguousSinceUtc = now;
+            }
+
+            return now - ambiguousSinceUtc < GracePeriod;
+        }
+    }
+
+    internal sealed class CriticalPublicationPolicy
+    {
+        internal static readonly TimeSpan StabilityPeriod =
+            TimeSpan.FromSeconds(4);
+
+        private DateTime criticalSinceUtc = DateTime.MinValue;
+
+        public bool ShouldDefer(
+            bool currentIsCritical,
+            bool requiresConfirmation,
+            DateTime observedUtc)
+        {
+            if (!currentIsCritical)
+            {
+                criticalSinceUtc = DateTime.MinValue;
+                return false;
+            }
+
+            if (criticalSinceUtc == DateTime.MinValue &&
+                !requiresConfirmation)
+            {
+                return false;
+            }
+
+            DateTime now = observedUtc == DateTime.MinValue
+                ? DateTime.UtcNow
+                : observedUtc.ToUniversalTime();
+            if (criticalSinceUtc == DateTime.MinValue ||
+                now < criticalSinceUtc)
+            {
+                criticalSinceUtc = now;
+            }
+
+            return now - criticalSinceUtc < StabilityPeriod;
+        }
+
+        public void Reset()
+        {
+            criticalSinceUtc = DateTime.MinValue;
         }
     }
 
