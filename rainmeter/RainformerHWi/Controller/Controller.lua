@@ -75,6 +75,7 @@ function Update()
     local bandLevel = jsonNumber(json, 'bandLevel') or 0
     local band = jsonString(json, 'band')
     local charging = jsonBoolean(json, 'charging') or false
+    local dockControllerState = jsonString(json, 'dockControllerState') or 'normal'
     local power = jsonString(json, 'power') or ''
     local connection = jsonString(json, 'connection') or 'Controller'
 
@@ -83,6 +84,7 @@ function Update()
         tostring(bandLevel),
         tostring(band),
         tostring(charging),
+        dockControllerState,
         power,
         connection
     }, '|')
@@ -169,7 +171,12 @@ function Update()
         batteryColor = '51,153,255,255'
     end
 
-    local stateText = charging and 'CHARGING' or (power == 'Charged' and 'CHARGED' or 'BATTERY')
+    local stateText
+    if dockControllerState == 'charge-sleep' then
+        stateText = 'DOCK SLEEP'
+    else
+        stateText = charging and 'CHARGING' or (power == 'Charged' and 'CHARGED' or 'BATTERY')
+    end
     local statusColor = barColor
     if charging and connection == 'Dock' then
         if bandLevel <= 2 then

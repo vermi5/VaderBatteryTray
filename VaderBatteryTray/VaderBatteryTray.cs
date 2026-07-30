@@ -17,7 +17,7 @@ using System.Windows.Forms;
 [assembly: System.Reflection.AssemblyCopyright("2026")]
 [assembly: System.Reflection.AssemblyVersion("1.2.0.0")]
 [assembly: System.Reflection.AssemblyFileVersion("1.2.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersion("1.2.0-rc.1")]
+[assembly: System.Reflection.AssemblyInformationalVersion("1.2.0")]
 
 namespace VaderBatteryTray
 {
@@ -44,6 +44,7 @@ namespace VaderBatteryTray
         GetInfo,
         DockEfBand
     }
+
     internal static class Program
     {
         [STAThread]
@@ -117,6 +118,8 @@ namespace VaderBatteryTray
         private BatterySnapshot completedSnapshot;
         private Exception completedRefreshError;
         private bool controllerUnavailableSeen;
+        private bool dockChargeSleepReturnPending;
+        private bool? lastAvailableSourceWasDock;
 
         public TrayApplicationContext()
         {
@@ -510,11 +513,50 @@ namespace VaderBatteryTray
 
             if (ShouldDeferTransitionalReading(snapshot))
             {
+                DiagnosticLogger.LogSnapshot(
+                    snapshot,
+                    snapshot.RedactedPath,
+                    null,
+                    "publication deferred by transition policy");
                 return;
+            }
+
+            if (snapshot.IsDockChargeSleep)
+            {
+                dockChargeSleepReturnPending = true;
+            }
+            bool returnedFromDockChargeSleep =
+                dockChargeSleepReturnPending &&
+                snapshot.HasLiveControllerSession;
+            if (returnedFromDockChargeSleep)
+            {
+                dockChargeSleepReturnPending = false;
+            }
+
+            bool availableReading =
+                snapshot.HasBattery || snapshot.HasBatteryBand;
+            bool sourceTransitionNeedsConfirmation = false;
+            if (availableReading)
+            {
+                bool currentSourceIsDock =
+                    snapshot.DataSource == BatteryDataSource.DockEfBand;
+                sourceTransitionNeedsConfirmation =
+                    lastAvailableSourceWasDock.HasValue &&
+                    lastAvailableSourceWasDock.Value != currentSourceIsDock;
+                lastAvailableSourceWasDock = currentSourceIsDock;
             }
 
             lastSnapshot = snapshot;
             sharedState.Publish(snapshot);
+            if (returnedFromDockChargeSleep ||
+                sourceTransitionNeedsConfirmation)
+            {
+                // Publish the first valid transition immediately, then sample
+                // once more after the controller and Dock have had time to
+                // settle. Restarting the same one-shot timer coalesces overlap.
+                wakeRefreshTimer.Stop();
+                wakeRefreshTimer.Start();
+            }
             ChargingAccent chargingAccent =
                 ChargingAccentPolicy.FromState(
                     snapshot.IsCharging,
@@ -586,6 +628,7 @@ namespace VaderBatteryTray
                     false,
                     "Vader 5 Pro | Not connected");
             }
+
         }
 
         private void ApplyPresentationContinuity(BatterySnapshot snapshot)
@@ -635,7 +678,7 @@ namespace VaderBatteryTray
             try
             {
                 StringBuilder text = new StringBuilder();
-                text.AppendLine("Vader Battery Tray 1.2.0-rc.1 diagnostics");
+                text.AppendLine("Vader Battery Tray 1.2.0 diagnostics");
                 text.AppendLine("Generated: " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
                 text.AppendLine("OS: " + Environment.OSVersion);
                 text.AppendLine("64-bit process: " + Environment.Is64BitProcess);
@@ -669,6 +712,14 @@ namespace VaderBatteryTray
                 text.AppendLine("    Battery level: " + EmptyMarker(snapshot.BandText));
                 text.AppendLine("    Power: " + EmptyMarker(snapshot.PowerText));
                 text.AppendLine("    Connection: " + EmptyMarker(snapshot.ConnectionText));
+                text.AppendLine(
+                    "    Dock controller state: " +
+                    (snapshot.IsDockChargeSleep
+                        ? "ChargeSleep (inferred)"
+                        : "Normal"));
+                text.AppendLine(
+                    "    Dock charge-sleep evidence: " +
+                    EmptyMarker(snapshot.DockChargeSleepEvidence));
                 text.AppendLine("    Device ID: " + EmptyMarker(snapshot.DeviceId));
                 text.AppendLine("    Firmware: " + EmptyMarker(snapshot.Firmware));
                 text.AppendLine("    Interface path: " + EmptyMarker(snapshot.RedactedPath));
@@ -683,6 +734,31 @@ namespace VaderBatteryTray
                     (snapshot.RawDockField9.HasValue
                         ? snapshot.RawDockField9.Value.ToString()
                         : "(unavailable)"));
+                DockHeartbeatSettings dockSettings = snapshot.DockSettings;
+                text.AppendLine(
+                    "    Intelligent Start / Sleep when charging: " +
+                    FormatDockSetting(
+                        dockSettings == null
+                            ? DockSettingState.Unknown
+                            : dockSettings.SleepWhenCharging));
+                text.AppendLine(
+                    "    Dock Sync / LedSync: " +
+                    FormatDockSetting(
+                        dockSettings == null
+                            ? DockSettingState.Unknown
+                            : dockSettings.LedSync));
+                text.AppendLine(
+                    "    Close When Shutdown / Close with system: " +
+                    FormatDockSetting(
+                        dockSettings == null
+                            ? DockSettingState.Unknown
+                            : dockSettings.CloseWithSystem));
+                text.AppendLine(
+                    "    Power Display / charging animation: " +
+                    FormatDockSetting(
+                        dockSettings == null
+                            ? DockSettingState.Unknown
+                            : dockSettings.ShowAnimationWhenCharging));
                 text.AppendLine("    Error: " + EmptyMarker(snapshot.Error));
                 text.AppendLine();
 
@@ -795,6 +871,11 @@ namespace VaderBatteryTray
         private static string EmptyMarker(string value)
         {
             return String.IsNullOrEmpty(value) ? "(unavailable)" : value;
+        }
+
+        private static string FormatDockSetting(DockSettingState state)
+        {
+            return state.ToString();
         }
 
         private static string LimitText(string value, int maximumLength)
@@ -932,6 +1013,9 @@ namespace VaderBatteryTray
         public byte? RawDockFlag;
         public byte? RawDockState;
         public byte? RawDockField9;
+        public DockHeartbeatSettings DockSettings;
+        public bool IsDockChargeSleep;
+        public string DockChargeSleepEvidence;
         // A valid GET_INFO reply was received from the controller in this refresh.
         // Enumeration alone is not enough: an off controller briefly exposes the
         // same HID interfaces while it is docked.
@@ -1016,6 +1100,22 @@ namespace VaderBatteryTray
 
             bool controllerPresent = last != null && last.InterfacePresent;
             BatterySnapshot monitorSnapshot = dockMonitor.WaitForSnapshot(0);
+            BatterySnapshot chargeSleepSnapshot =
+                dockMonitor.GetChargeSleepSnapshot(controllerPresent);
+            if (chargeSleepSnapshot != null)
+            {
+                chargeSleepSnapshot = FinalizeInterfacePresence(
+                    chargeSleepSnapshot,
+                    false,
+                    true);
+                DiagnosticLogger.LogSnapshot(
+                    chargeSleepSnapshot,
+                    chargeSleepSnapshot.RedactedPath,
+                    null,
+                    "inferred Dock charge sleep");
+                return chargeSleepSnapshot;
+            }
+
             BatterySnapshot result;
             if (BatterySourcePolicy.ShouldPreferDock(
                 monitorSnapshot.HasBatteryBand,
@@ -1579,6 +1679,8 @@ namespace VaderBatteryTray
                 TimeSpan.FromMinutes(5);
             private static readonly TimeSpan SnapshotFreshnessLifetime =
                 TimeSpan.FromSeconds(3);
+            private static readonly TimeSpan ChargeSleepEvidenceLifetime =
+                TimeSpan.FromMinutes(2);
 
             private readonly object sync = new object();
             private readonly Thread thread;
@@ -1591,6 +1693,10 @@ namespace VaderBatteryTray
             private string lastLoggedDockSignature = String.Empty;
             private DateTime lastDockLogUtc = DateTime.MinValue;
             private readonly DockBatteryStateTracker stateTracker;
+            private bool dockSessionActive;
+            private DockHeartbeatSettings dockSettings;
+            private bool lastEfActive;
+            private DateTime lastIntelligentStartCommandUtc = DateTime.MinValue;
 
             public DockStatusMonitor(
                 DockBatteryStateTracker stateTracker,
@@ -1628,21 +1734,91 @@ namespace VaderBatteryTray
                     {
                         DateTime observedUtc =
                             lastSnapshot.UtcObservationTimestamp;
-                        if (observedUtc != DateTime.MinValue &&
-                            observedUtc <= DateTime.UtcNow &&
-                            DateTime.UtcNow - observedUtc <=
-                                SnapshotFreshnessLifetime)
+                        if (DockSnapshotSelectionPolicy.IsCurrent(
+                            lastEfActive,
+                            observedUtc,
+                            DateTime.UtcNow,
+                            SnapshotFreshnessLifetime))
                         {
                             return lastSnapshot;
                         }
 
                         return BatterySnapshot.Unavailable(
-                            "Dock monitor: last EF snapshot is stale",
+                            lastEfActive
+                                ? "Dock monitor: last EF snapshot is stale"
+                                : "Dock monitor: latest EF report is inactive",
                             true);
                     }
 
                     return BatterySnapshot.Unavailable("Dock monitor: " + lastError, true);
                 }
+            }
+
+            public BatterySnapshot GetChargeSleepSnapshot(
+                bool controllerPresent)
+            {
+                lock (sync)
+                {
+                    if (lastSnapshot == null)
+                    {
+                        return null;
+                    }
+
+                    DateTime observedUtc =
+                        lastSnapshot.UtcObservationTimestamp;
+                    DockSettingState intelligentStart =
+                        lastSnapshot.DockSettings == null
+                            ? DockSettingState.Unknown
+                            : lastSnapshot.DockSettings.SleepWhenCharging;
+                    if (!DockChargeSleepPolicy.ShouldInfer(
+                        controllerPresent,
+                        lastEfActive,
+                        lastSnapshot.HasBatteryBand,
+                        observedUtc,
+                        DateTime.UtcNow,
+                        ChargeSleepEvidenceLifetime,
+                        intelligentStart,
+                        lastIntelligentStartCommandUtc))
+                    {
+                        return null;
+                    }
+
+                    BatterySnapshot inferred =
+                        CloneForChargeSleep(lastSnapshot);
+                    inferred.DockChargeSleepEvidence =
+                        intelligentStart == DockSettingState.Enabled
+                        ? "Intelligent Start enabled in heartbeat; controller HID absent after active EF"
+                        : "Intelligent Start command ACK observed; controller HID absent after active EF";
+                    return inferred;
+                }
+            }
+
+            private static BatterySnapshot CloneForChargeSleep(
+                BatterySnapshot source)
+            {
+                BatterySnapshot snapshot = new BatterySnapshot();
+                snapshot.InterfacePresent = true;
+                snapshot.HasBatteryBand = true;
+                snapshot.Percent = source.Percent;
+                snapshot.BandLevel = source.BandLevel;
+                snapshot.BandText = source.BandText;
+                snapshot.IsCharging = true;
+                snapshot.PowerText = "Sleeping while charging";
+                snapshot.ConnectionText = "Dock";
+                snapshot.RedactedPath = source.RedactedPath;
+                snapshot.Provenance =
+                    "Inferred Dock charge sleep from last active EF snapshot";
+                snapshot.RawDockReportHex = source.RawDockReportHex;
+                snapshot.RawDockFlag = source.RawDockFlag;
+                snapshot.RawDockState = source.RawDockState;
+                snapshot.RawDockField9 = source.RawDockField9;
+                snapshot.DockSettings = source.DockSettings;
+                snapshot.Transport = BatteryTransport.Dock;
+                snapshot.DataSource = BatteryDataSource.DockEfBand;
+                snapshot.PowerState = BatteryPowerState.Charging;
+                snapshot.UtcObservationTimestamp = DateTime.UtcNow;
+                snapshot.IsDockChargeSleep = true;
+                return snapshot;
             }
 
             public void Dispose()
@@ -1670,7 +1846,7 @@ namespace VaderBatteryTray
 
                         using (SafeFileHandle handle = Native.CreateFile(
                             dock.Path,
-                            Native.GENERIC_READ,
+                            Native.GENERIC_READ | Native.GENERIC_WRITE,
                             Native.FILE_SHARE_READ | Native.FILE_SHARE_WRITE,
                             IntPtr.Zero,
                             Native.OPEN_EXISTING,
@@ -1687,7 +1863,13 @@ namespace VaderBatteryTray
                             int inputLength = Math.Max(65, (int)dock.InputReportByteLength);
 
                             using (FileStream stream =
-                                new FileStream(handle, FileAccess.Read, inputLength, true))
+                                new FileStream(
+                                    handle,
+                                    FileAccess.ReadWrite,
+                                    Math.Max(
+                                        inputLength,
+                                        Math.Max(65, (int)dock.OutputReportByteLength)),
+                                    true))
                             {
                                 SetTransientError("open, waiting for EF report on " + dock.RedactedPath);
 
@@ -1702,11 +1884,101 @@ namespace VaderBatteryTray
                                         break;
                                     }
 
+                                    int offset = FindMagicOffset(report);
+                                    byte command =
+                                        offset >= 0 && report.Length > offset + 2
+                                            ? report[offset + 2]
+                                            : (byte)0x00;
+                                    if (command == 0x01)
+                                    {
+                                        DockHeartbeatSettings parsed;
+                                        if (DockHeartbeatProtocol.TryDecode(
+                                            report,
+                                            out parsed))
+                                        {
+                                            dockSettings = parsed;
+                                        }
+                                        continue;
+                                    }
+                                    if (command == 0x16 || command == 0x17)
+                                    {
+                                        // SignalRGB streaming ACKs share this
+                                        // interface and do not carry battery state.
+                                        continue;
+                                    }
+                                    if (command == 0x11)
+                                    {
+                                        lock (sync)
+                                        {
+                                            lastIntelligentStartCommandUtc =
+                                                DateTime.UtcNow;
+                                        }
+                                        dockSettings = null;
+                                        LogIgnoredDockReport(
+                                            dock.RedactedPath,
+                                            report,
+                                            "observed Intelligent Start command ACK");
+                                        continue;
+                                    }
+                                    if (command == 0x61 || command == 0x62)
+                                    {
+                                        // Persistent LED profile traffic is
+                                        // known but not attributable to a client.
+                                        continue;
+                                    }
+                                    if (command != 0xEF)
+                                    {
+                                        LogIgnoredDockReport(
+                                            dock.RedactedPath,
+                                            report,
+                                            "ignored unknown dock report");
+                                        continue;
+                                    }
+
                                     BatterySnapshot snapshot =
                                         DecodeDockEfReport(
                                             report,
                                             dock.RedactedPath,
                                             stateTracker);
+
+                                    bool reportActive =
+                                        snapshot.RawDockFlag.HasValue &&
+                                        snapshot.RawDockFlag.Value != 0;
+                                    bool endedActiveDockSession =
+                                        !reportActive &&
+                                        dockSessionActive;
+                                    if (!reportActive)
+                                    {
+                                        lock (sync)
+                                        {
+                                            lastEfActive = false;
+                                        }
+                                        dockSessionActive = false;
+                                        dockSettings = null;
+                                    }
+                                    else if (!dockSessionActive)
+                                    {
+                                        lock (sync)
+                                        {
+                                            lastEfActive = true;
+                                        }
+                                        dockSessionActive = true;
+                                        dockSettings = QueryDockHeartbeat(
+                                            stream,
+                                            Math.Max(
+                                                65,
+                                                (int)dock.OutputReportByteLength),
+                                            inputLength,
+                                            dock.RedactedPath);
+                                    }
+                                    else
+                                    {
+                                        lock (sync)
+                                        {
+                                            lastEfActive = true;
+                                        }
+                                    }
+                                    snapshot.DockSettings = dockSettings;
 
                                     if (ShouldLogDockSnapshot(snapshot))
                                     {
@@ -1741,11 +2013,21 @@ namespace VaderBatteryTray
                                             snapshotAvailable();
                                         }
                                     }
-                                    else
+                                    else if (snapshot.RawDockFlag.HasValue)
                                     {
-                                        SetReportError(
-                                            "received non-band dock report: " +
-                                            Hex(report));
+                                        // An inactive or transitional EF report
+                                        // must not erase the last valid battery.
+                                        SetTransientReportStatus(
+                                            "received non-band dock EF report");
+                                        if (endedActiveDockSession &&
+                                            snapshotAvailable != null)
+                                        {
+                                            // Intelligent Start disabled keeps
+                                            // the controller HID enumerated, so
+                                            // undock may have no Windows device
+                                            // event. EF inactivity is the trigger.
+                                            snapshotAvailable();
+                                        }
                                     }
                                 }
                             }
@@ -1756,6 +2038,116 @@ namespace VaderBatteryTray
                         SetError("Dock monitor failed: " + ex.Message);
                         SleepInterruptible(2000);
                     }
+                }
+            }
+
+            private DockHeartbeatSettings QueryDockHeartbeat(
+                FileStream stream,
+                int outputLength,
+                int inputLength,
+                string redactedPath)
+            {
+                try
+                {
+                    byte[] request = new byte[outputLength];
+                    request[0] = 0x00;
+                    request[1] = Magic1;
+                    request[2] = Magic2;
+                    request[3] = 0x01;
+                    request[4] = 0x02;
+                    request[5] = 0x03;
+                    stream.Write(request, 0, request.Length);
+                    stream.Flush();
+
+                    DateTime deadline =
+                        DateTime.UtcNow.AddMilliseconds(QueryTimeoutMs);
+                    while (DateTime.UtcNow < deadline)
+                    {
+                        byte[] response;
+                        int remaining = Math.Max(
+                            1,
+                            (int)(deadline - DateTime.UtcNow).TotalMilliseconds);
+                        if (!TryReadReport(
+                            stream,
+                            inputLength,
+                            remaining,
+                            out response))
+                        {
+                            break;
+                        }
+
+                        DockHeartbeatSettings settings;
+                        if (DockHeartbeatProtocol.TryDecode(
+                            response,
+                            out settings))
+                        {
+                            return settings;
+                        }
+
+                        int offset = FindMagicOffset(response);
+                        byte command =
+                            offset >= 0 && response.Length > offset + 2
+                                ? response[offset + 2]
+                                : (byte)0x00;
+                        if (command == 0x11)
+                        {
+                            lock (sync)
+                            {
+                                lastIntelligentStartCommandUtc =
+                                    DateTime.UtcNow;
+                            }
+                            LogIgnoredDockReport(
+                                redactedPath,
+                                response,
+                                "observed Intelligent Start command ACK while awaiting heartbeat");
+                            continue;
+                        }
+                        if (command != 0xEF &&
+                            command != 0x16 &&
+                            command != 0x17 &&
+                            command != 0x61 &&
+                            command != 0x62)
+                        {
+                            LogIgnoredDockReport(
+                                redactedPath,
+                                response,
+                                "ignored while awaiting dock heartbeat");
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    LogIgnoredDockReport(
+                        redactedPath,
+                        null,
+                        "dock heartbeat query failed: " + ex.Message);
+                }
+                return null;
+            }
+
+            private static void LogIgnoredDockReport(
+                string redactedPath,
+                byte[] report,
+                string result)
+            {
+                BatterySnapshot diagnostic =
+                    BatterySnapshot.Unavailable(result, true);
+                diagnostic.RedactedPath = redactedPath;
+                diagnostic.Transport = BatteryTransport.Dock;
+                diagnostic.RawDockReportHex = Hex(report);
+                diagnostic.UtcObservationTimestamp = DateTime.UtcNow;
+                DiagnosticLogger.LogSnapshot(
+                    diagnostic,
+                    redactedPath,
+                    null,
+                    result);
+            }
+
+            private void SetTransientReportStatus(string status)
+            {
+                lock (sync)
+                {
+                    lastError = status;
                 }
             }
 
@@ -1775,7 +2167,30 @@ namespace VaderBatteryTray
                     previous.RawDockState != current.RawDockState ||
                     previous.RawDockField9 != current.RawDockField9 ||
                     previous.IsCharging != current.IsCharging ||
-                    previous.Percent != current.Percent;
+                    previous.Percent != current.Percent ||
+                    !DockSettingsEqual(
+                        previous.DockSettings,
+                        current.DockSettings);
+            }
+
+            private static bool DockSettingsEqual(
+                DockHeartbeatSettings left,
+                DockHeartbeatSettings right)
+            {
+                if (Object.ReferenceEquals(left, right))
+                {
+                    return true;
+                }
+                if (left == null || right == null)
+                {
+                    return false;
+                }
+
+                return left.SleepWhenCharging == right.SleepWhenCharging &&
+                    left.LedSync == right.LedSync &&
+                    left.CloseWithSystem == right.CloseWithSystem &&
+                    left.ShowAnimationWhenCharging ==
+                        right.ShowAnimationWhenCharging;
             }
 
             private bool ShouldLogDockSnapshot(BatterySnapshot snapshot)
@@ -1798,7 +2213,9 @@ namespace VaderBatteryTray
                     "|",
                     snapshot.BandLevel.ToString(),
                     "|",
-                    snapshot.HasBatteryBand.ToString());
+                    snapshot.HasBatteryBand.ToString(),
+                    "|",
+                    DockSettingsSignature(snapshot.DockSettings));
 
                 DateTime observedUtc =
                     snapshot.UtcObservationTimestamp == DateTime.MinValue
@@ -1826,6 +2243,24 @@ namespace VaderBatteryTray
                     lastDockLogUtc = observedUtc;
                     return true;
                 }
+            }
+
+            private static string DockSettingsSignature(
+                DockHeartbeatSettings settings)
+            {
+                if (settings == null)
+                {
+                    return "Unknown";
+                }
+
+                return String.Concat(
+                    settings.SleepWhenCharging.ToString(),
+                    ",",
+                    settings.LedSync.ToString(),
+                    ",",
+                    settings.CloseWithSystem.ToString(),
+                    ",",
+                    settings.ShowAnimationWhenCharging.ToString());
             }
 
             private void SetError(string error)

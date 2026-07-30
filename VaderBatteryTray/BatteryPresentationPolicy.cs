@@ -47,6 +47,21 @@ namespace VaderBatteryTray
         }
     }
 
+    internal static class DockSnapshotSelectionPolicy
+    {
+        public static bool IsCurrent(
+            bool latestEfActive,
+            DateTime observedUtc,
+            DateTime nowUtc,
+            TimeSpan freshnessLifetime)
+        {
+            return latestEfActive &&
+                   observedUtc != DateTime.MinValue &&
+                   observedUtc <= nowUtc &&
+                   nowUtc - observedUtc <= freshnessLifetime;
+        }
+    }
+
     internal static class BatteryDisplayScale
     {
         // Legacy numeric values are retained only as internal continuity

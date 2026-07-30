@@ -32,7 +32,7 @@ Example response:
 
 ```json
 {
-  "schemaVersion": 4,
+  "schemaVersion": 5,
   "controller": "Flydigi Vader 5 Pro",
   "status": "ok",
   "connected": true,
@@ -42,6 +42,8 @@ Example response:
   "bandLevel": 5,
   "band": "Top",
   "charging": false,
+  "dockControllerStateInferred": false,
+  "dockControllerState": "normal",
   "power": "Discharging",
   "connection": "Wireless",
   "source": "GetInfo",
@@ -56,6 +58,13 @@ Controller and Dock 2 values use their own raw scales. The bridge exposes only
 the common qualitative levels: `Critical`, `Low`, `Medium`, `High`, and `Top`.
 Charging and Charged remain independent power states. Confirmed or inferred
 Full therefore uses `bandLevel: 5`, `band: "Top"`, and `power: "Charged"`.
+
+When Intelligent Start suspends a docked controller, the bridge retains the
+last confirmed band and returns `dockControllerState: "charge-sleep"`,
+`dockControllerStateInferred: true`, `charging: true`, and
+`power: "Sleeping while charging"`. Charging during this state is physically
+confirmed; only the controller's internal sleep state is inferred. The bundled
+skin presents the compact label `DOCK SLEEP`.
 
 Possible `status` values:
 

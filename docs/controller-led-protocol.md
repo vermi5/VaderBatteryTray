@@ -28,3 +28,10 @@ During an active Dock charging snapshot, directly controlled controller LEDs
 instead follow the observed native charge-stage grouping:
 `Critical/Low=red`, `Medium/High=yellow`, and `Top=blue`. An inactive
 confirmed `Top / Charged` snapshot has no charging accent.
+
+While the controller is docked, direct controller LED writes are allowed only
+when the Dock heartbeat confirms that Dock Sync (`data[19]`), Intelligent
+Start / Sleep when charging (`data[18]`), and Power Display / Show charging
+animation (`data[21]`) are all disabled. Any enabled or unknown lighting owner
+fails safe by preserving the firmware-controlled lighting. Close When Shutdown
+(`data[20]`) is recorded for diagnostics but does not own live lighting.
