@@ -48,6 +48,24 @@ tray and Rainmeter must then move directly to `CONTROLLER ASLEEP / OFF`,
 without flashing `BATTERY UNAVAILABLE`. A deliberately sustained GET_INFO
 failure beyond the grace period must still publish `unavailable`.
 
+After returning from Intelligent Start `Dock ChargeSleep`, the first valid
+GET_INFO result must publish immediately. A second one-shot refresh roughly
+1.25 seconds later must confirm the settled controller state without enabling
+continuous fast polling.
+
+The same immediate-publication plus one-shot-confirmation pattern applies when
+the last available source changes between Dock EF and controller GET_INFO.
+Unavailable intermediate snapshots must not erase the remembered source or
+prevent normal dock/undock confirmation.
+
+With Intelligent Start disabled, undocking may leave the controller HID
+continuously enumerated and therefore produce no Windows device-change event.
+The active-to-inactive Dock EF transition must request an immediate GET_INFO
+refresh; its source transition then receives the normal one-shot confirmation.
+The inactive EF must also invalidate the retained active Dock snapshot
+immediately instead of allowing its normal three-second freshness window to
+override the resulting wireless GET_INFO reading.
+
 On reconnect, a raw GET_INFO level `0` or Dock lowest-band candidate following
 a settled higher level must not flash `Critical`. It must remain stable for
 four seconds before publication, so a genuine critical battery is delayed

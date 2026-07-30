@@ -113,17 +113,31 @@ Each entry contains tab-separated fields:
 - `HasBattery`
 - `HasBatteryBand`
 - `PowerState`
+- `DockControllerState`
+- `DockChargeSleepEvidence`
 - `RawGetInfoStatusNibble`
 - `RawGetInfoLevelNibble`
 - `RawDockFlag`
 - `RawDockState`
 - `RawDockField9`
+- `DockIntelligentStart`
+- `DockLedSync`
+- `DockCloseWithSystem`
+- `DockPowerDisplay`
 - `RawGetInfoHex`
 - `RawDockEfHex`
 - `Result`
 
 Unknown values are written as `-`. Raw GET_INFO and Dock EF reports are
 preserved in hexadecimal form.
+
+`DockControllerState=ChargeSleep` is inferred when the controller HID
+disappears after a recently active Dock EF session and Intelligent Start was
+either enabled in the heartbeat or its command ACK was just observed. Later EF
+silence corroborates the state but is not required to delay publication. The
+last confirmed qualitative band is retained. Charging remains asserted because
+USB power measurement confirmed continued current draw during this state; only
+the controller's internal charge-sleep classification is inferred.
 
 ## Dock log deduplication
 
@@ -134,7 +148,7 @@ The background monitor logs:
 - a heartbeat after five minutes without a change.
 
 The signature includes raw flag, raw state, internal continuity value,
-qualitative level, and availability.
+qualitative level, availability, and the four Dock heartbeat settings.
 Transitions such as `01 06` to `00 06` therefore remain visible while
 identical reports are suppressed.
 

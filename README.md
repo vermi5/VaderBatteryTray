@@ -34,6 +34,21 @@ release download, simply run `VaderBatteryTray.exe` directly.
 
 The application does not collect telemetry or connect to the internet.
 
+## What's new in 1.2.0
+
+- Dock 2 charging is shown from its observed EF battery reports instead of
+  relying only on the controller's wireless reading.
+- Docking, undocking, controller sleep, and wake transitions request immediate
+  readings with a short confirmation sample, while the normal USB polling
+  interval remains two minutes.
+- Intelligent Start charge sleep is presented as `Sleeping while charging` in
+  the tray and `DOCK SLEEP` in Rainmeter when the controller HID disappears
+  after an active Dock report.
+- Direct controller lighting yields to Dock Sync, Intelligent Start, and Power
+  Display whenever the Dock firmware reports that one of them owns lighting.
+- The included Rainmeter skin uses the same qualitative levels and checks the
+  local bridge once per second for responsive transition display.
+
 ## Controller lighting
 
 Right-click the tray icon and open **Controller lighting**.
@@ -46,7 +61,11 @@ Right-click the tray icon and open **Controller lighting**.
 Lighting control is experimental and disabled by default. It does not send
 lighting commands to an off controller merely enumerated by the Dock. For a
 controller actively responding to `GET_INFO` while docked, it can apply the
-battery color.
+battery color only when Dock Sync, Intelligent Start, and Power Display are
+all confirmed disabled. If any of those Dock features is enabled, or their
+heartbeat state is unknown, the application leaves docked-controller lighting
+to the Dock firmware. Close When Shutdown is diagnostic only and does not
+affect live lighting ownership.
 
 At 20% or below while an awake controller is discharging, the application
 leaves lighting control to the controller firmware so its native red
@@ -71,6 +90,8 @@ Run `Install Startup Shortcut.cmd` from the application folder. To undo it, run
 
 - Windows 10 or Windows 11, x64.
 - Flydigi Vader 5 Pro using the currently supported HID interface.
+- Flydigi Dock 2 for the optional observed Dock battery and firmware-setting
+  integration.
 - Controller and Dock raw values use different representations. The tray maps
   both to qualitative levels while keeping charging, charged, and discharging
   as independent power states.

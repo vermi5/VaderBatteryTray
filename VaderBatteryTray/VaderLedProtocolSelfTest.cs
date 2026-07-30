@@ -11,6 +11,9 @@ namespace VaderLedProtocolSelfTest
             TestOffVector();
             TestSettingsResolution();
             TestNativeLowBatteryAlertPolicy();
+            TestDockHeartbeatParser();
+            TestDockLightingOwnershipPolicy();
+            TestDockChargeSleepPolicy();
             TestSaturatedControllerPalette();
             TestDockChargingAccentPalette();
             TestDockEstimatedScale();
@@ -18,6 +21,7 @@ namespace VaderLedProtocolSelfTest
             TestTransientUnavailablePublicationPolicy();
             TestCriticalPublicationPolicy();
             TestBatterySourcePrecedence();
+            TestDockSnapshotSelection();
             TestSharedBatteryDisplayScale();
             TestDockToWirelessContinuity();
             TestFullToWirelessContinuity();
@@ -81,6 +85,194 @@ namespace VaderLedProtocolSelfTest
             AssertBoolean(false, VaderBatteryTray.VaderLedPolicy.ShouldPreserveNativeLowBatteryAlert(true, true, 40, false, 0), "allow RGB above warning band");
             AssertBoolean(false, VaderBatteryTray.VaderLedPolicy.ShouldPreserveNativeLowBatteryAlert(true, true, 20, true, 1), "allow charging color policy");
             AssertBoolean(false, VaderBatteryTray.VaderLedPolicy.ShouldPreserveNativeLowBatteryAlert(false, true, 20, false, 0), "require live controller session");
+        }
+
+        private static void TestDockLightingOwnershipPolicy()
+        {
+            VaderBatteryTray.DockHeartbeatSettings allDisabled =
+                DockSettings(false, false, false, false);
+            AssertBoolean(
+                true,
+                VaderBatteryTray.VaderLedPolicy.ShouldSendControllerLighting(
+                    true,
+                    allDisabled),
+                "allow docked lighting when all owners are disabled");
+            AssertBoolean(
+                false,
+                VaderBatteryTray.VaderLedPolicy.ShouldSendControllerLighting(
+                    true,
+                    DockSettings(false, true, false, false)),
+                "preserve dock sync lighting");
+            AssertBoolean(
+                false,
+                VaderBatteryTray.VaderLedPolicy.ShouldSendControllerLighting(
+                    true,
+                    DockSettings(true, false, false, false)),
+                "preserve intelligent start lighting");
+            AssertBoolean(
+                false,
+                VaderBatteryTray.VaderLedPolicy.ShouldSendControllerLighting(
+                    true,
+                    DockSettings(false, false, false, true)),
+                "preserve power display lighting");
+            AssertBoolean(
+                true,
+                VaderBatteryTray.VaderLedPolicy.ShouldSendControllerLighting(
+                    true,
+                    DockSettings(false, false, true, false)),
+                "close with system does not own live lighting");
+            AssertBoolean(
+                false,
+                VaderBatteryTray.VaderLedPolicy.ShouldSendControllerLighting(
+                    true,
+                    null),
+                "fail safe while dock heartbeat is unknown");
+            AssertBoolean(
+                true,
+                VaderBatteryTray.VaderLedPolicy.ShouldSendControllerLighting(
+                    false,
+                    null),
+                "dock settings do not affect undocked controller");
+        }
+
+        private static void TestDockHeartbeatParser()
+        {
+            byte[] report = new byte[65];
+            report[1] = 0x5A;
+            report[2] = 0xA5;
+            report[3] = 0x01;
+            report[19] = 0x01;
+            report[20] = 0x00;
+            report[21] = 0x01;
+            report[22] = 0x01;
+
+            VaderBatteryTray.DockHeartbeatSettings settings;
+            AssertBoolean(
+                true,
+                VaderBatteryTray.DockHeartbeatProtocol.TryDecode(
+                    report,
+                    out settings),
+                "decode dock heartbeat");
+            AssertEqual(
+                (int)VaderBatteryTray.DockSettingState.Enabled,
+                (int)settings.SleepWhenCharging,
+                "decode intelligent start");
+            AssertEqual(
+                (int)VaderBatteryTray.DockSettingState.Disabled,
+                (int)settings.LedSync,
+                "decode dock sync");
+            AssertEqual(
+                (int)VaderBatteryTray.DockSettingState.Enabled,
+                (int)settings.CloseWithSystem,
+                "decode close with system");
+            AssertEqual(
+                (int)VaderBatteryTray.DockSettingState.Enabled,
+                (int)settings.ShowAnimationWhenCharging,
+                "decode power display");
+
+            report[3] = 0xEF;
+            AssertBoolean(
+                false,
+                VaderBatteryTray.DockHeartbeatProtocol.TryDecode(
+                    report,
+                    out settings),
+                "reject non-heartbeat report");
+            AssertBoolean(
+                false,
+                VaderBatteryTray.DockHeartbeatProtocol.TryDecode(
+                    new byte[8],
+                    out settings),
+                "reject short heartbeat report");
+        }
+
+        private static void TestDockChargeSleepPolicy()
+        {
+            DateTime now =
+                new DateTime(2026, 7, 30, 9, 31, 30, DateTimeKind.Utc);
+            TimeSpan evidence = TimeSpan.FromMinutes(2);
+
+            AssertBoolean(
+                true,
+                VaderBatteryTray.DockChargeSleepPolicy.ShouldInfer(
+                    false,
+                    true,
+                    true,
+                    now.AddSeconds(-5),
+                    now,
+                    evidence,
+                    VaderBatteryTray.DockSettingState.Enabled,
+                    DateTime.MinValue),
+                "infer charge sleep from enabled heartbeat");
+            AssertBoolean(
+                true,
+                VaderBatteryTray.DockChargeSleepPolicy.ShouldInfer(
+                    false,
+                    true,
+                    true,
+                    now.AddSeconds(-5),
+                    now,
+                    evidence,
+                    VaderBatteryTray.DockSettingState.Unknown,
+                    now.AddSeconds(-2)),
+                "infer charge sleep from recent command ACK");
+            AssertBoolean(
+                false,
+                VaderBatteryTray.DockChargeSleepPolicy.ShouldInfer(
+                    true,
+                    true,
+                    true,
+                    now.AddSeconds(-5),
+                    now,
+                    evidence,
+                    VaderBatteryTray.DockSettingState.Enabled,
+                    DateTime.MinValue),
+                "live controller prevents charge sleep");
+            AssertBoolean(
+                false,
+                VaderBatteryTray.DockChargeSleepPolicy.ShouldInfer(
+                    false,
+                    false,
+                    true,
+                    now.AddSeconds(-5),
+                    now,
+                    evidence,
+                    VaderBatteryTray.DockSettingState.Enabled,
+                    DateTime.MinValue),
+                "inactive EF cancels charge sleep");
+            AssertBoolean(
+                true,
+                VaderBatteryTray.DockChargeSleepPolicy.ShouldInfer(
+                    false,
+                    true,
+                    true,
+                    now.AddSeconds(-1),
+                    now,
+                    evidence,
+                    VaderBatteryTray.DockSettingState.Enabled,
+                    DateTime.MinValue),
+                "enabled Intelligent Start and missing HID infer immediately");
+        }
+
+        private static VaderBatteryTray.DockHeartbeatSettings DockSettings(
+            bool intelligentStart,
+            bool ledSync,
+            bool closeWithSystem,
+            bool powerDisplay)
+        {
+            VaderBatteryTray.DockHeartbeatSettings settings =
+                new VaderBatteryTray.DockHeartbeatSettings();
+            settings.SleepWhenCharging = SettingState(intelligentStart);
+            settings.LedSync = SettingState(ledSync);
+            settings.CloseWithSystem = SettingState(closeWithSystem);
+            settings.ShowAnimationWhenCharging = SettingState(powerDisplay);
+            return settings;
+        }
+
+        private static VaderBatteryTray.DockSettingState SettingState(bool enabled)
+        {
+            return enabled
+                ? VaderBatteryTray.DockSettingState.Enabled
+                : VaderBatteryTray.DockSettingState.Disabled;
         }
 
         private static void TestSaturatedControllerPalette()
@@ -361,6 +553,46 @@ namespace VaderLedProtocolSelfTest
                     true,
                     false),
                 "unavailable Dock never wins");
+        }
+
+        private static void TestDockSnapshotSelection()
+        {
+            DateTime now =
+                new DateTime(2026, 7, 30, 10, 52, 5, DateTimeKind.Utc);
+            TimeSpan freshness = TimeSpan.FromSeconds(3);
+
+            AssertBoolean(
+                true,
+                VaderBatteryTray.DockSnapshotSelectionPolicy.IsCurrent(
+                    true,
+                    now.AddSeconds(-1),
+                    now,
+                    freshness),
+                "fresh active Dock EF is selectable");
+            AssertBoolean(
+                false,
+                VaderBatteryTray.DockSnapshotSelectionPolicy.IsCurrent(
+                    false,
+                    now.AddSeconds(-1),
+                    now,
+                    freshness),
+                "inactive EF immediately invalidates retained Dock snapshot");
+            AssertBoolean(
+                false,
+                VaderBatteryTray.DockSnapshotSelectionPolicy.IsCurrent(
+                    true,
+                    now.AddSeconds(-4),
+                    now,
+                    freshness),
+                "stale active Dock EF is not selectable");
+            AssertBoolean(
+                false,
+                VaderBatteryTray.DockSnapshotSelectionPolicy.IsCurrent(
+                    true,
+                    now.AddSeconds(1),
+                    now,
+                    freshness),
+                "future Dock EF timestamp is not selectable");
         }
 
         private static void TestDockToWirelessContinuity()

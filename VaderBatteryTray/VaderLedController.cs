@@ -133,6 +133,16 @@ namespace VaderBatteryTray
                 return;
             }
 
+            if (!VaderLedPolicy.ShouldSendControllerLighting(
+                snapshot.DataSource == BatteryDataSource.DockEfBand,
+                snapshot.DockSettings))
+            {
+                // Dock Sync, Intelligent Start, and Power Display can each own
+                // docked-controller lighting. Unknown is deliberately fail-safe.
+                lastSignature = null;
+                return;
+            }
+
             if (VaderLedPolicy.ShouldPreserveNativeLowBatteryAlert(
                 snapshot.HasLiveControllerSession,
                 snapshot.HasBattery,

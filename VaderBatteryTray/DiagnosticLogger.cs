@@ -57,6 +57,10 @@ namespace VaderBatteryTray
                     Append(line, "HasBattery", snapshot.HasBattery.ToString());
                     Append(line, "HasBatteryBand", snapshot.HasBatteryBand.ToString());
                     Append(line, "PowerState", snapshot.PowerState.ToString());
+                    Append(line, "DockControllerState",
+                        snapshot.IsDockChargeSleep ? "ChargeSleep" : "Normal");
+                    Append(line, "DockChargeSleepEvidence",
+                        Clean(snapshot.DockChargeSleepEvidence));
                     Append(line, "RawGetInfoStatusNibble", FormatNullableByte(snapshot.RawGetInfoStatusNibble));
                     Append(line, "RawGetInfoLevelNibble", FormatNullableByte(snapshot.RawGetInfoLevelNibble));
                     Append(line, "RawDockFlag", FormatNullableByte(snapshot.RawDockFlag));
@@ -64,6 +68,30 @@ namespace VaderBatteryTray
                         ? "0x" + snapshot.RawDockState.Value.ToString("X2", CultureInfo.InvariantCulture)
                         : "-");
                     Append(line, "RawDockField9", FormatNullableByte(snapshot.RawDockField9));
+                    Append(line, "DockIntelligentStart", FormatDockSetting(
+                        snapshot.DockSettings,
+                        delegate(DockHeartbeatSettings settings)
+                        {
+                            return settings.SleepWhenCharging;
+                        }));
+                    Append(line, "DockLedSync", FormatDockSetting(
+                        snapshot.DockSettings,
+                        delegate(DockHeartbeatSettings settings)
+                        {
+                            return settings.LedSync;
+                        }));
+                    Append(line, "DockCloseWithSystem", FormatDockSetting(
+                        snapshot.DockSettings,
+                        delegate(DockHeartbeatSettings settings)
+                        {
+                            return settings.CloseWithSystem;
+                        }));
+                    Append(line, "DockPowerDisplay", FormatDockSetting(
+                        snapshot.DockSettings,
+                        delegate(DockHeartbeatSettings settings)
+                        {
+                            return settings.ShowAnimationWhenCharging;
+                        }));
                     Append(line, "RawGetInfoHex", Clean(snapshot.RawReplyHex));
                     Append(line, "RawDockEfHex", Clean(snapshot.RawDockReportHex));
                     Append(line, "Result", Clean(result));
@@ -78,6 +106,15 @@ namespace VaderBatteryTray
             {
                 // Diagnostics must never affect battery reads or application stability.
             }
+        }
+
+        private static string FormatDockSetting(
+            DockHeartbeatSettings settings,
+            Func<DockHeartbeatSettings, DockSettingState> selector)
+        {
+            return settings == null
+                ? DockSettingState.Unknown.ToString()
+                : selector(settings).ToString();
         }
 
         private static void RotateIfNeeded(string currentPath, string previousPath)

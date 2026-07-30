@@ -38,7 +38,7 @@ namespace VaderBatteryTray
         {
             StringBuilder json = new StringBuilder();
             json.Append("{");
-            AppendNumber(json, "schemaVersion", 4, false);
+            AppendNumber(json, "schemaVersion", 5, false);
             AppendString(json, "controller", "Flydigi Vader 5 Pro", true);
 
             if (snapshot == null)
@@ -51,6 +51,8 @@ namespace VaderBatteryTray
                 AppendNumber(json, "bandLevel", 0, true);
                 AppendString(json, "band", null, true);
                 AppendBoolean(json, "charging", false, true);
+                AppendBoolean(json, "dockControllerStateInferred", false, true);
+                AppendString(json, "dockControllerState", null, true);
                 AppendString(json, "power", null, true);
                 AppendString(json, "connection", null, true);
                 AppendString(json, "source", null, true);
@@ -85,6 +87,16 @@ namespace VaderBatteryTray
             AppendNumber(json, "bandLevel", snapshot.BandLevel, true);
             AppendString(json, "band", EmptyToNull(snapshot.BandText), true);
             AppendBoolean(json, "charging", snapshot.IsCharging, true);
+            AppendBoolean(
+                json,
+                "dockControllerStateInferred",
+                snapshot.IsDockChargeSleep,
+                true);
+            AppendString(
+                json,
+                "dockControllerState",
+                snapshot.IsDockChargeSleep ? "charge-sleep" : "normal",
+                true);
             AppendString(json, "power", EmptyToNull(snapshot.PowerText), true);
             AppendString(json, "connection", EmptyToNull(snapshot.ConnectionText), true);
             AppendString(json, "source", snapshot.DataSource == BatteryDataSource.Unknown ? null : snapshot.DataSource.ToString(), true);

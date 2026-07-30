@@ -1,5 +1,27 @@
 # Changelog
 
+## 1.2.0 - 2026-07-30
+
+- Read all four persisted Dock heartbeat flags and pause docked-controller LED
+  writes while Dock Sync, Intelligent Start, or Power Display is enabled or
+  unknown. Record Close When Shutdown for diagnostics without treating it as
+  a live lighting owner.
+- Infer Intelligent Start charge sleep immediately when the controller HID
+  disappears after active EF, retaining the last band across tray, diagnostics,
+  API, and Rainmeter (`DOCK SLEEP`). Keep Charging asserted because external
+  USB measurement confirms continued current draw in that state.
+- Queue one follow-up GET_INFO refresh 1.25 seconds after the controller returns
+  from Dock Charge Sleep, allowing its first published wake state to settle.
+- Queue the same one-shot confirmation when the last available source changes
+  between Dock EF and controller GET_INFO, improving normal dock/undock UX.
+- Treat active-to-inactive Dock EF as an immediate undock refresh trigger when
+  the controller HID remains enumerated and Windows emits no device event.
+- Invalidate the retained active Dock EF as a current source as soon as an
+  inactive EF arrives, preventing its three-second freshness window from
+  masking the forced wireless GET_INFO result after undocking.
+- Ignore known persistent profile traffic `0x61`/`0x62` in routine diagnostics
+  and use Guide consistently for the controller wake button.
+
 ## 1.2.0-rc.1 - 2026-07-28
 
 - Replace battery percentages in the tray, tooltip, local status API, and
