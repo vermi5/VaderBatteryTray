@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.3.0 - 2026-08-03
+
+- Add cache-only Dock API signals under schema v5. `dockControllerConnected`
+  exactly replicates Space Station Service's
+  `ChargerInfo.IsControllerConnected` from Dock EF `data[7]`, with independent
+  timestamp, sequence, and evidence source fields.
+- Keep physical `dockState` independent and conservative: active Dock EF
+  publishes `docked`; inactive EF publishes `unknown` because a fully charged
+  controller can remain physically seated while Space Station reports its
+  controller-connected signal as false.
+- Expose the raw Dock `field9` and active-session flag as diagnostic evidence
+  for each dock-state observation, without altering battery, transport,
+  charging, or controller connection fields.
+
 ## 1.2.0 - 2026-07-30
 
 - Read all four persisted Dock heartbeat flags and pause docked-controller LED
