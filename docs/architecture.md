@@ -28,7 +28,12 @@ controller / Dock HID report
 
 The local endpoint uses `schemaVersion: 5` and reports the qualitative
 `bandLevel` and `band` separately from `charging`, `power`, `connection`,
-`source`, `controllerPresent`, and `dockPresent`. Rainmeter consumes these
+`source`, `controllerPresent`, and `dockPresent`. It also exposes a separate
+Dock-presence observation (`dockState`, `dockStateObservedUtc`,
+`dockStateSequence`, and `dockStateSource`) written directly by the Dock EF
+watcher. The separate `dockControllerConnected` fields reproduce Space Station
+Service's `ChargerInfo.IsControllerConnected` from EF activity and are not a
+physical-presence claim. Rainmeter consumes these
 fields instead of reading HID reports itself.
 
 The raw Dock and controller scales differ. Their internal ordinals are

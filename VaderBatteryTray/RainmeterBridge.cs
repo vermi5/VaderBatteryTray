@@ -13,6 +13,16 @@ namespace VaderBatteryTray
         private readonly object sync = new object();
         private BatterySnapshot snapshot;
         private DateTime publishedUtc;
+        private string dockState = "unknown";
+        private DateTime dockStateObservedUtc;
+        private long dockStateSequence;
+        private string dockStateSource;
+        private byte? dockStateRawField9;
+        private bool dockStateActiveSessionObserved;
+        private bool dockControllerConnected;
+        private DateTime dockControllerConnectedObservedUtc;
+        private long dockControllerConnectedSequence;
+        private string dockControllerConnectedSource;
 
         public void Publish(BatterySnapshot value)
         {
@@ -23,18 +33,93 @@ namespace VaderBatteryTray
             }
         }
 
+        // This is deliberately independent from the battery snapshot. The Dock
+        // watcher can therefore publish physical-presence evidence immediately,
+        // without starting a controller GET_INFO refresh.
+        public void ObserveDockState(
+            string state,
+            string source,
+            DateTime observedUtc,
+            byte? rawField9,
+            bool activeSessionObserved,
+            bool controllerConnected)
+        {
+            if (!String.Equals(state, "docked", StringComparison.Ordinal) &&
+                !String.Equals(state, "undocked", StringComparison.Ordinal) &&
+                !String.Equals(state, "unknown", StringComparison.Ordinal))
+            {
+                state = "unknown";
+            }
+
+            DateTime utc = observedUtc == DateTime.MinValue
+                ? DateTime.UtcNow
+                : observedUtc.ToUniversalTime();
+            lock (sync)
+            {
+                if (!String.Equals(dockState, state, StringComparison.Ordinal))
+                {
+                    dockState = state;
+                    unchecked
+                    {
+                        dockStateSequence++;
+                    }
+                }
+
+                dockStateObservedUtc = utc;
+                dockStateSource = source;
+                dockStateRawField9 = rawField9;
+                dockStateActiveSessionObserved = activeSessionObserved;
+
+                if (dockControllerConnected != controllerConnected)
+                {
+                    dockControllerConnected = controllerConnected;
+                    unchecked
+                    {
+                        dockControllerConnectedSequence++;
+                    }
+                }
+                dockControllerConnectedObservedUtc = utc;
+                dockControllerConnectedSource =
+                    "dock-ef-activity-is-controller-connected";
+            }
+        }
+
         public string GetJson()
         {
             lock (sync)
             {
-                return BatterySnapshotJson.Serialize(snapshot, publishedUtc);
+                return BatterySnapshotJson.Serialize(
+                    snapshot,
+                    publishedUtc,
+                    dockState,
+                    dockStateObservedUtc,
+                    dockStateSequence,
+                    dockStateSource,
+                    dockStateRawField9,
+                    dockStateActiveSessionObserved,
+                    dockControllerConnected,
+                    dockControllerConnectedObservedUtc,
+                    dockControllerConnectedSequence,
+                    dockControllerConnectedSource);
             }
         }
     }
 
     internal static class BatterySnapshotJson
     {
-        public static string Serialize(BatterySnapshot snapshot, DateTime publishedUtc)
+        public static string Serialize(
+            BatterySnapshot snapshot,
+            DateTime publishedUtc,
+            string dockState,
+            DateTime dockStateObservedUtc,
+            long dockStateSequence,
+            string dockStateSource,
+            byte? dockStateRawField9,
+            bool dockStateActiveSessionObserved,
+            bool dockControllerConnected,
+            DateTime dockControllerConnectedObservedUtc,
+            long dockControllerConnectedSequence,
+            string dockControllerConnectedSource)
         {
             StringBuilder json = new StringBuilder();
             json.Append("{");
@@ -59,6 +144,7 @@ namespace VaderBatteryTray
                 AppendString(json, "firmware", null, true);
                 AppendString(json, "observedUtc", null, true);
                 AppendString(json, "publishedUtc", null, true);
+                AppendDockState(json, dockState, dockStateObservedUtc, dockStateSequence, dockStateSource, dockStateRawField9, dockStateActiveSessionObserved, dockControllerConnected, dockControllerConnectedObservedUtc, dockControllerConnectedSequence, dockControllerConnectedSource);
                 AppendString(json, "error", null, true);
                 json.Append("}");
                 return json.ToString();
@@ -103,9 +189,60 @@ namespace VaderBatteryTray
             AppendString(json, "firmware", EmptyToNull(snapshot.Firmware), true);
             AppendString(json, "observedUtc", observedText, true);
             AppendString(json, "publishedUtc", publishedText, true);
+            AppendDockState(json, dockState, dockStateObservedUtc, dockStateSequence, dockStateSource, dockStateRawField9, dockStateActiveSessionObserved, dockControllerConnected, dockControllerConnectedObservedUtc, dockControllerConnectedSequence, dockControllerConnectedSource);
             AppendString(json, "error", EmptyToNull(snapshot.Error), true);
             json.Append("}");
             return json.ToString();
+        }
+
+        private static void AppendDockState(
+            StringBuilder json,
+            string dockState,
+            DateTime dockStateObservedUtc,
+            long dockStateSequence,
+            string dockStateSource,
+            byte? dockStateRawField9,
+            bool dockStateActiveSessionObserved,
+            bool dockControllerConnected,
+            DateTime dockControllerConnectedObservedUtc,
+            long dockControllerConnectedSequence,
+            string dockControllerConnectedSource)
+        {
+            string observedText = dockStateObservedUtc == DateTime.MinValue
+                ? null
+                : dockStateObservedUtc.ToUniversalTime().ToString("o", CultureInfo.InvariantCulture);
+            AppendString(json, "dockState", EmptyToNull(dockState) ?? "unknown", true);
+            AppendString(json, "dockStateObservedUtc", observedText, true);
+            AppendNumber(json, "dockStateSequence", dockStateSequence, true);
+            AppendString(json, "dockStateSource", EmptyToNull(dockStateSource), true);
+            AppendNullableNumber(json, "dockStateRawField9", dockStateRawField9, true);
+            AppendBoolean(
+                json,
+                "dockStateActiveSessionObserved",
+                dockStateActiveSessionObserved,
+                true);
+            string controllerConnectedObservedText =
+                dockControllerConnectedObservedUtc == DateTime.MinValue
+                    ? null
+                    : dockControllerConnectedObservedUtc.ToUniversalTime().ToString(
+                        "o",
+                        CultureInfo.InvariantCulture);
+            AppendBoolean(json, "dockControllerConnected", dockControllerConnected, true);
+            AppendString(
+                json,
+                "dockControllerConnectedObservedUtc",
+                controllerConnectedObservedText,
+                true);
+            AppendNumber(
+                json,
+                "dockControllerConnectedSequence",
+                dockControllerConnectedSequence,
+                true);
+            AppendString(
+                json,
+                "dockControllerConnectedSource",
+                EmptyToNull(dockControllerConnectedSource),
+                true);
         }
 
         private static string EmptyToNull(string value)
@@ -137,6 +274,27 @@ namespace VaderBatteryTray
         {
             AppendName(json, name, comma);
             json.Append(value.ToString(CultureInfo.InvariantCulture));
+        }
+
+        private static void AppendNumber(StringBuilder json, string name, long value, bool comma)
+        {
+            AppendName(json, name, comma);
+            json.Append(value.ToString(CultureInfo.InvariantCulture));
+        }
+
+        private static void AppendNullableNumber(
+            StringBuilder json,
+            string name,
+            byte? value,
+            bool comma)
+        {
+            AppendName(json, name, comma);
+            if (!value.HasValue)
+            {
+                json.Append("null");
+                return;
+            }
+            json.Append(value.Value.ToString(CultureInfo.InvariantCulture));
         }
 
         private static void AppendName(StringBuilder json, string name, bool comma)

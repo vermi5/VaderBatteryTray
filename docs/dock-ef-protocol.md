@@ -50,8 +50,9 @@ An observed report has this form:
 - the following field (`field9`) has unknown meaning. A controlled capture kept
   it at `1` while inactive, docked, charging, asleep, and even after some
   removals, so `1` must not be used as proof of physical presence. A separate
-  powered-off removal produced `00/06/00`; an inactive transition to `0` is
-  therefore used only as negative evidence that invalidates retained Full.
+  powered-off removal produced `00/06/00`; this remains diagnostic-only
+  negative evidence that invalidates retained Full. It cannot prove physical
+  removal, so every inactive EF keeps public `dockState: "unknown"`.
 - `checksum` is the low byte of the sum from `5A` through that constant `01`,
   plus one.
 - trailing zeroes pad the HID report.
@@ -84,6 +85,20 @@ No separate `isCharging`, `chargeState`, or equivalent protobuf field was
 found. Charging and Full in this application remain interpretations of the
 observed EF transitions and physical LED behavior, rather than a distinct
 charging-status value exposed by Flydigi.
+
+## Space Station controller-connected compatibility
+
+Space Station Service copies `EF[7] == 1` directly into
+`ChargerInfo.IsControllerConnected`; it does not consult `field9` or perform a
+physical-presence confirmation. The public `dockControllerConnected` signal
+replicates that exact behavior: `EF[7]=1` publishes `true`, and `EF[7]=0`
+publishes `false`.
+
+This is intentionally separate from physical `dockState`. A captured inactive
+EF can occur while a controller remains physically seated after becoming full.
+Therefore `dockControllerConnected=false` is correct Space Station
+compatibility output, while `dockState` remains `unknown` unless independent
+physical removal evidence exists.
 
 ## Full and inactive reports
 

@@ -15,9 +15,9 @@ using System.Windows.Forms;
 [assembly: System.Reflection.AssemblyCompany("Open source utility")]
 [assembly: System.Reflection.AssemblyProduct("Vader Battery Tray")]
 [assembly: System.Reflection.AssemblyCopyright("2026")]
-[assembly: System.Reflection.AssemblyVersion("1.2.0.0")]
-[assembly: System.Reflection.AssemblyFileVersion("1.2.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersion("1.2.0")]
+[assembly: System.Reflection.AssemblyVersion("1.3.0.0")]
+[assembly: System.Reflection.AssemblyFileVersion("1.3.0.0")]
+[assembly: System.Reflection.AssemblyInformationalVersion("1.3.0")]
 
 namespace VaderBatteryTray
 {
@@ -123,7 +123,10 @@ namespace VaderBatteryTray
 
         public TrayApplicationContext()
         {
-            reader = new HidBatteryReader(RequestRefresh);
+            sharedState = new SharedBatteryState();
+            reader = new HidBatteryReader(
+                RequestRefresh,
+                sharedState.ObserveDockState);
             ledController = new VaderLedController();
             presentationContinuity = new BatteryPresentationContinuity(
                 new BatteryPresentationRegistryStateStore());
@@ -131,7 +134,6 @@ namespace VaderBatteryTray
                 new TransientUnavailablePublicationPolicy();
             criticalPublicationPolicy =
                 new CriticalPublicationPolicy();
-            sharedState = new SharedBatteryState();
             rainmeterBridge = new RainmeterBridge(sharedState, RequestRefresh);
             rainmeterBridge.Start();
             deviceChangeWindow = new HidDeviceChangeWindow(RequestRefresh);
@@ -1054,13 +1056,16 @@ namespace VaderBatteryTray
         private readonly DockBatteryStateTracker dockStateTracker;
         private readonly DockStatusMonitor dockMonitor;
 
-        public HidBatteryReader(Action dockSnapshotAvailable)
+        public HidBatteryReader(
+            Action dockSnapshotAvailable,
+            Action<string, string, DateTime, byte?, bool, bool> dockStateObserved)
         {
             dockStateTracker = new DockBatteryStateTracker(
                 new DockRegistryRuntimeStateStore());
             dockMonitor = new DockStatusMonitor(
                 dockStateTracker,
-                dockSnapshotAvailable);
+                dockSnapshotAvailable,
+                dockStateObserved);
         }
 
         public void Dispose()
@@ -1685,6 +1690,8 @@ namespace VaderBatteryTray
             private readonly object sync = new object();
             private readonly Thread thread;
             private readonly Action snapshotAvailable;
+            private readonly Action<string, string, DateTime, byte?, bool, bool>
+                dockStateObserved;
             private bool disposed;
             private BatterySnapshot lastSnapshot;
             private string lastError =
@@ -1696,14 +1703,17 @@ namespace VaderBatteryTray
             private bool dockSessionActive;
             private DockHeartbeatSettings dockSettings;
             private bool lastEfActive;
+            private bool activeDockSessionObserved;
             private DateTime lastIntelligentStartCommandUtc = DateTime.MinValue;
 
             public DockStatusMonitor(
                 DockBatteryStateTracker stateTracker,
-                Action snapshotAvailable)
+                Action snapshotAvailable,
+                Action<string, string, DateTime, byte?, bool, bool> dockStateObserved)
             {
                 this.stateTracker = stateTracker;
                 this.snapshotAvailable = snapshotAvailable;
+                this.dockStateObserved = dockStateObserved;
                 thread = new Thread(Run);
                 thread.IsBackground = true;
                 thread.Name = "Vader Dock EF monitor";
@@ -1944,6 +1954,15 @@ namespace VaderBatteryTray
                                     bool reportActive =
                                         snapshot.RawDockFlag.HasValue &&
                                         snapshot.RawDockFlag.Value != 0;
+                                    if (reportActive)
+                                    {
+                                        activeDockSessionObserved = true;
+                                    }
+                                    PublishDockStateEvidence(
+                                        reportActive,
+                                        snapshot.RawDockField9,
+                                        activeDockSessionObserved,
+                                        snapshot.UtcObservationTimestamp);
                                     bool endedActiveDockSession =
                                         !reportActive &&
                                         dockSessionActive;
@@ -2039,6 +2058,33 @@ namespace VaderBatteryTray
                         SleepInterruptible(2000);
                     }
                 }
+            }
+
+            private void PublishDockStateEvidence(
+                bool reportActive,
+                byte? rawField9,
+                bool activeSessionObserved,
+                DateTime observedUtc)
+            {
+                if (dockStateObserved == null)
+                {
+                    return;
+                }
+
+                // An active EF session is Dock-specific evidence that the
+                // controller is physically docked. An inactive EF can instead
+                // be a retained state or a full controller still seated, so it
+                // is intentionally published as unknown rather than undocked.
+                dockStateObserved(
+                    DockControllerConnectionPolicy.ConservativeDockStateFromEfActivity(
+                        reportActive),
+                    reportActive
+                        ? "dock-ef-active-session"
+                        : "dock-ef-inactive-ambiguous",
+                    observedUtc,
+                    rawField9,
+                    activeSessionObserved,
+                    DockControllerConnectionPolicy.FromEfActivity(reportActive));
             }
 
             private DockHeartbeatSettings QueryDockHeartbeat(

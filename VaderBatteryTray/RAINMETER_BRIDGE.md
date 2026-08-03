@@ -50,9 +50,40 @@ Example response:
   "firmware": "0x7141",
   "observedUtc": "2026-07-22T18:00:00.0000000Z",
   "publishedUtc": "2026-07-22T18:00:00.0500000Z",
+  "dockState": "unknown",
+  "dockStateObservedUtc": "2026-07-22T18:00:00.0300000Z",
+  "dockStateSequence": 0,
+  "dockStateSource": "dock-ef-inactive-ambiguous",
+  "dockStateRawField9": 1,
+  "dockStateActiveSessionObserved": true,
+  "dockControllerConnected": true,
+  "dockControllerConnectedObservedUtc": "2026-07-22T18:00:00.0300000Z",
+  "dockControllerConnectedSequence": 4,
+  "dockControllerConnectedSource": "dock-ef-activity-is-controller-connected",
   "error": null
 }
 ```
+
+`dockState` is a physical-presence signal independent of `connection`,
+`charging`, `source`, and the battery timestamps. An active Dock EF session
+publishes `docked` with source `dock-ef-active-session`. An inactive EF report
+always publishes `unknown`, because it can be retained after removal or mean a
+fully charged controller is still seated; it never proves physical `undocked`.
+`dockStateSequence` increments only when this state changes;
+`dockStateObservedUtc` is refreshed by every EF observation, even when the
+battery snapshot does not change. Reading the endpoint remains cache-only and
+never starts a controller refresh.
+`dockStateRawField9` and `dockStateActiveSessionObserved` are diagnostic
+evidence from the exact EF observation that last updated this signal.
+`dockControllerConnected` is a separate, non-physical compatibility signal: it
+is an exact replica of Space Station Service's
+`ChargerInfo.IsControllerConnected`. It follows the Dock EF activity field
+directly (`EF[7] = 1` means `true`; `EF[7] = 0` means `false`). Its timestamp
+and sequence are independent. A controller may be physically seated in the
+Dock but already full, causing `EF[7] = 0`; in that case
+`dockControllerConnected: false` is correct for Space Station compatibility
+and does not prove physical undock. Consumers needing physical certainty must
+use the separate conservative `dockState` signal.
 
 Controller and Dock 2 values use their own raw scales. The bridge exposes only
 the common qualitative levels: `Critical`, `Low`, `Medium`, `High`, and `Top`.

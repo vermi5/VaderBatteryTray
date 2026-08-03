@@ -3,6 +3,22 @@ using System;
 
 namespace VaderBatteryTray
 {
+    internal static class DockControllerConnectionPolicy
+    {
+        // Exact Space Station compatibility: ChargerInfo.IsControllerConnected
+        // is assigned directly from Dock EF data[7] == 1. This is intentionally
+        // not a physical-presence inference.
+        public static bool FromEfActivity(bool efActive)
+        {
+            return efActive;
+        }
+
+        public static string ConservativeDockStateFromEfActivity(bool efActive)
+        {
+            return efActive ? "docked" : "unknown";
+        }
+    }
+
     internal sealed class DockBatteryDecision
     {
         public bool Available;

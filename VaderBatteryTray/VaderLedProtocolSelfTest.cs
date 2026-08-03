@@ -28,6 +28,7 @@ namespace VaderLedProtocolSelfTest
             TestDockFullTransitions();
             TestDockRuntimeRestore();
             TestDockTransientStateFiltering();
+            TestDockControllerConnectedCompatibility();
             Console.WriteLine("Vader LED protocol self-test passed.");
         }
 
@@ -768,6 +769,25 @@ namespace VaderLedProtocolSelfTest
             VaderBatteryTray.DockBatteryDecision field9Changed =
                 tracker.Process(1, 0x04, 0, now.AddMilliseconds(1200));
             AssertBoolean(true, field9Changed.Available, "field 9 does not control availability");
+        }
+
+        private static void TestDockControllerConnectedCompatibility()
+        {
+            AssertBoolean(true,
+                VaderBatteryTray.DockControllerConnectionPolicy.FromEfActivity(true),
+                "Space Station maps active EF data[7] to controller connected");
+            AssertBoolean(false,
+                VaderBatteryTray.DockControllerConnectionPolicy.FromEfActivity(false),
+                "Space Station maps inactive EF data[7] to controller disconnected");
+            AssertBoolean(false,
+                VaderBatteryTray.DockControllerConnectionPolicy.FromEfActivity(false),
+                "a full controller may remain physically docked while this compatibility signal is false");
+            AssertEqual("docked",
+                VaderBatteryTray.DockControllerConnectionPolicy.ConservativeDockStateFromEfActivity(true),
+                "active EF is conservative physical dock evidence");
+            AssertEqual("unknown",
+                VaderBatteryTray.DockControllerConnectionPolicy.ConservativeDockStateFromEfActivity(false),
+                "inactive EF never claims physical undock");
         }
 
         private sealed class MemoryDockRuntimeStateStore : VaderBatteryTray.IDockRuntimeStateStore
