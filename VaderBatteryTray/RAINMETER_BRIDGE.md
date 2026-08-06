@@ -3,6 +3,11 @@
 Vader Battery Tray exposes its latest already-collected controller state through
 a read-only HTTP endpoint bound exclusively to the IPv4 loopback interface.
 
+The bundled Rainmeter skin is the reference consumer, but it is not the only
+one: the endpoint is a general-purpose local state API and has consumers
+outside this repository. See "Contract stability" below before changing any
+field.
+
 ## Endpoint
 
 ```text
@@ -107,8 +112,33 @@ Possible `status` values:
 - `receiver-disconnected`: neither the controller nor the Dock 2 receiver HID
   interfaces are present.
 
+Possible `source` values, identifying which reading produced the published
+battery state:
+
+- `"GetInfo"`: the controller's own `GET_INFO` reply.
+- `"DockEfBand"`: a Dock 2 EF report. This wins over a live controller
+  reading when the Dock is actively charging, because `GET_INFO` can report
+  `power: "Discharging"` and `connection: "Wireless"` while an awake
+  controller is physically charging in the Dock.
+- `null`: no reading has established a source yet.
+
 Raw HID reports, device paths, and other diagnostic-only data are intentionally
 not exposed.
+
+## Contract stability
+
+This endpoint is not Rainmeter-specific. `schemaVersion` is the compatibility
+contract for every consumer, and integrations outside this repository read it
+to decide whether a device is safe to write to — a wrong or silently changed
+field can therefore cause a third party to act on stale or misread state, not
+just to display it incorrectly.
+
+Treat as part of the contract, not as incidental detail: the `status` and
+`source` value sets above, the `dockState` / `dockControllerConnected`
+distinction described earlier, and the `dockControllerState:
+"charge-sleep"` value. Renaming or repurposing any of them, or changing what
+`dockState: "unknown"` implies, is a breaking change and needs a
+`schemaVersion` bump rather than an in-place edit.
 
 ## Rainmeter integration
 
