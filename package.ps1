@@ -60,7 +60,6 @@ foreach ($file in $applicationFiles) {
 }
 
 Copy-Item -LiteralPath (Join-Path $repoRoot 'rainmeter') -Destination $stageDirectory -Recurse -Force
-Copy-Item -LiteralPath (Join-Path $repoRoot 'overlays') -Destination $stageDirectory -Recurse -Force
 
 if (Test-Path -LiteralPath $zipPath) {
     Remove-Item -LiteralPath $zipPath -Force

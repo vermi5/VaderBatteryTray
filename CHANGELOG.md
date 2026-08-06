@@ -1,20 +1,5 @@
 # Changelog
 
-## 1.4.0 - 2026-08-06
-
-- Add `Access-Control-Allow-Origin: *` to every local status API response so
-  browser-based consumers (OBS Studio Browser Source, Wallpaper Engine web
-  widgets) can read the JSON cross-origin via `fetch`; Rainmeter's WebParser
-  measure was unaffected, since it never enforced CORS. The endpoint remains
-  loopback-only and unauthenticated; this does mean any web page open in an
-  ordinary browser on this machine can now also read this read-only,
-  low-sensitivity battery/connection JSON, not just the two new overlays.
-- Add an OBS Studio Browser Source overlay and a Wallpaper Engine web widget
-  under `overlays/`, matching the Rainmeter skin's field parity: battery
-  band and bar, charging state, controller-vs-Dock data source, connection
-  type, and power text. Both share one implementation of the band-color,
-  bar-fill, and status-text rules with the Rainmeter skin's `Controller.lua`.
-
 ## 1.3.0 - 2026-08-03
 
 - Add cache-only Dock API signals under schema v5. `dockControllerConnected`

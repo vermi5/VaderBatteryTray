@@ -34,20 +34,22 @@ release download, simply run `VaderBatteryTray.exe` directly.
 
 The application does not collect telemetry or connect to the internet.
 
-## What's new in 1.4.0
+## What's new in 1.3.0
 
-- The local status API now returns `Access-Control-Allow-Origin: *` on every
-  response, so browser-based overlays (OBS Studio Browser Source, Wallpaper
-  Engine web widgets) can read it with `fetch`, not just Rainmeter's
-  WebParser measure. The endpoint remains loopback-only, unauthenticated,
-  and read-only; see [RAINMETER_BRIDGE.md](VaderBatteryTray/RAINMETER_BRIDGE.md)
-  for what this means in practice.
-- Added an OBS Studio Browser Source overlay and a Wallpaper Engine widget
-  under [`overlays/`](overlays/), matching the Rainmeter skin's field
-  parity: battery band and bar, charging state, controller-vs-Dock data
-  source, connection type, and power text. See [Overlays](#overlays) below.
+- The local status API (`schemaVersion: 5`) adds `dockControllerConnected`, a
+  cache-only signal that mirrors Space Station Service's
+  `ChargerInfo.IsControllerConnected` from Dock EF evidence, with its own
+  timestamp, sequence, and source fields.
+- The physical `dockState` field stays independent and conservative: active
+  Dock EF publishes `docked`; inactive EF publishes `unknown`, since a fully
+  charged controller can remain physically seated while Space Station reports
+  its controller-connected signal as false.
+- The raw Dock `field9` and an active-session flag are now exposed as
+  diagnostic evidence alongside each dock-state observation. None of this
+  changes battery, transport, charging, or controller-connection fields.
 
-Tray behavior is unchanged from 1.3.0.
+These additions are aimed at the local API and Rainmeter integration; tray
+behavior is unchanged from 1.2.0.
 
 ## Controller lighting
 
@@ -120,28 +122,6 @@ An optional skin is included under `rainmeter/RainformerHWi/Controller`. See
 [RAINMETER_BRIDGE.md](VaderBatteryTray/RAINMETER_BRIDGE.md) for the local API
 and setup details. Copy the `RainformerHWi` folder to your Rainmeter `Skins`
 directory, then refresh the `RainformerHWi\\Controller` skin.
-
-## Overlays
-
-Two additional read-only consumers of the same local API are included under
-[`overlays/`](overlays/). Both show the same qualitative battery band,
-charging state, connection, and data source as the Rainmeter skin, using the
-same color palette, in a layout native to each platform.
-
-- **OBS Studio**: add [`overlays/obs/vader-battery-overlay.html`](overlays/obs/vader-battery-overlay.html)
-  as a Browser Source (check "Local file"). Transparent background, corner
-  HUD. Add `?corner=tl`, `tr`, `bl`, or `br` to the local file path to change
-  which corner it anchors to (default bottom-right).
-- **Wallpaper Engine**: import the [`overlays/wallpaper-engine/`](overlays/wallpaper-engine/)
-  folder as a wallpaper project, then enable **Widget** mode from its
-  context menu so it floats over your desktop instead of replacing your
-  wallpaper. Corner and scale are configurable from the wallpaper's
-  properties panel.
-
-Both require `VaderBatteryTray.exe` running on the same machine and show an
-explicit offline state, rather than stale data, when it isn't. See
-[RAINMETER_BRIDGE.md](VaderBatteryTray/RAINMETER_BRIDGE.md) for the shared
-API contract all three integrations rely on.
 
 ## Technical documentation
 
