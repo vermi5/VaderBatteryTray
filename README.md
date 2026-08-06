@@ -34,20 +34,22 @@ release download, simply run `VaderBatteryTray.exe` directly.
 
 The application does not collect telemetry or connect to the internet.
 
-## What's new in 1.2.0
+## What's new in 1.3.0
 
-- Dock 2 charging is shown from its observed EF battery reports instead of
-  relying only on the controller's wireless reading.
-- Docking, undocking, controller sleep, and wake transitions request immediate
-  readings with a short confirmation sample, while the normal USB polling
-  interval remains two minutes.
-- Intelligent Start charge sleep is presented as `Sleeping while charging` in
-  the tray and `DOCK SLEEP` in Rainmeter when the controller HID disappears
-  after an active Dock report.
-- Direct controller lighting yields to Dock Sync, Intelligent Start, and Power
-  Display whenever the Dock firmware reports that one of them owns lighting.
-- The included Rainmeter skin uses the same qualitative levels and checks the
-  local bridge once per second for responsive transition display.
+- The local status API (`schemaVersion: 5`) adds `dockControllerConnected`, a
+  cache-only signal that mirrors Space Station Service's
+  `ChargerInfo.IsControllerConnected` from Dock EF evidence, with its own
+  timestamp, sequence, and source fields.
+- The physical `dockState` field stays independent and conservative: active
+  Dock EF publishes `docked`; inactive EF publishes `unknown`, since a fully
+  charged controller can remain physically seated while Space Station reports
+  its controller-connected signal as false.
+- The raw Dock `field9` and an active-session flag are now exposed as
+  diagnostic evidence alongside each dock-state observation. None of this
+  changes battery, transport, charging, or controller-connection fields.
+
+These additions are aimed at the local API and Rainmeter integration; tray
+behavior is unchanged from 1.2.0.
 
 ## Controller lighting
 
