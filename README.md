@@ -127,6 +127,12 @@ directory, then refresh the `RainformerHWi\\Controller` skin.
 
 Developer and verification material lives in [`docs/`](docs/): the architecture, Dock EF battery-state observations, validation notes, and the release process. The repository documentation describes current behavior; historical handoff material is kept outside the working repository.
 
+## Related projects
+
+- [flydigi-dock2-signalrgb](https://github.com/vermi5/flydigi-dock2-signalrgb):
+  a SignalRGB add-on for the Flydigi Dock 2. It is a sibling project covering
+  the same Flydigi ecosystem, maintained separately from this repository.
+
 ## Help and contributions
 
 - For a problem, open a [bug report](https://github.com/vermi5/VaderBatteryTray/issues/new?template=bug_report.yml).
