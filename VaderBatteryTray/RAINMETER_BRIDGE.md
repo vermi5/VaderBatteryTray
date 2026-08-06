@@ -1,7 +1,10 @@
-# Rainmeter bridge
+# Local status API
 
 Vader Battery Tray exposes its latest already-collected controller state through
 a read-only HTTP endpoint bound exclusively to the IPv4 loopback interface.
+This is the shared contract for every consumer: the bundled Rainmeter skin,
+the OBS Studio overlay, the Wallpaper Engine widget, and any other local
+tool that wants to read it.
 
 ## Endpoint
 
@@ -25,6 +28,14 @@ The state endpoint does not open the HID interface and does not trigger
 additional controller queries. It only serializes the latest snapshot published
 by the existing tray refresh cycle. The refresh command queues one normal tray
 refresh and rejects repeated requests received within two seconds.
+
+Every response includes `Access-Control-Allow-Origin: *`, so a page's own
+`fetch`/`XMLHttpRequest` can read the JSON cross-origin — required for
+browser-based consumers like OBS Browser Source and Wallpaper Engine, which
+run as real Chromium contexts rather than a plain HTTP client. The endpoint
+stays loopback-only and unauthenticated; this header means any web page open
+in an ordinary browser on the same machine can also read this low-sensitivity,
+read-only JSON, not only the bundled integrations below.
 
 ## State schema
 
@@ -122,3 +133,27 @@ lighting, mapping, or firmware command is exposed.
 
 The bundled skin uses `bandLevel` for both fill and colour. It never displays or
 reconstructs a battery percentage.
+
+## OBS Studio integration
+
+`overlays/obs/vader-battery-overlay.html` polls the state endpoint once per
+second via `fetch` and only re-renders when the relevant fields change,
+matching the Rainmeter skin's own polling cadence. On a fetch failure or a
+non-2xx response it shows an explicit offline state rather than freezing on
+the last successful reading. Add it as an OBS Browser Source with "Local
+file" checked; it never opens the command or health endpoints.
+
+## Wallpaper Engine integration
+
+`overlays/wallpaper-engine/` is a `"type": "web"` project using the same
+polling and offline behavior as the OBS overlay. Corner position and scale
+are exposed as Wallpaper Engine user properties. Enabling Widget mode (a
+per-wallpaper toggle in the Wallpaper Engine app itself, not a project file
+setting) lets it float over the desktop independently of the user's actual
+wallpaper.
+
+Both overlays and the Rainmeter skin share one hand-maintained
+implementation of the band-color, bar-fill, and status-text rules in
+`overlays/shared/battery-overlay-core.js`, spliced into each distributable
+HTML file by `overlays/shared/build.ps1` so every consumer agrees on wording
+and color for the same live state.

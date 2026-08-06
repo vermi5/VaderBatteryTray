@@ -582,6 +582,7 @@ namespace VaderBatteryTray
                 "Content-Type: " + contentType + "\r\n" +
                 "Content-Length: " + bodyBytes.Length.ToString(CultureInfo.InvariantCulture) + "\r\n" +
                 "Cache-Control: no-store\r\n" +
+                "Access-Control-Allow-Origin: *\r\n" +
                 "Connection: close\r\n\r\n";
             byte[] headerBytes = Encoding.ASCII.GetBytes(headers);
             stream.Write(headerBytes, 0, headerBytes.Length);
